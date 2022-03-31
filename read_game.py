@@ -2,11 +2,15 @@ import time
 
 import numpy as np
 import cv2
-from mss import mss
+from mss.linux import MSS as mss
 from PIL import Image
 
-THRESH_GAMEFIELD = np.array([[45, 0, 0], [55, 255, 255]])
-THRESH_HEADER = np.array([[57, 174, 0], [58, 175, 255]])
+# Values that worked on laptop
+# THRESH_HEADER = np.array([[57, 174, 0], [58, 175, 255]])
+# THRESH_GAMEFIELD = np.array([[45, 0, 0], [55, 255, 255]])
+# For desktop:
+THRESH_HEADER = np.array([[48, 0, 0], [49, 255, 255]])
+THRESH_GAMEFIELD = np.array([[40, 150, 0], [45, 170, 255]])
 
 
 def get_bbox_by_hsv(img, thresh, display_bbox=False):
@@ -37,7 +41,6 @@ def get_bbox_by_hsv(img, thresh, display_bbox=False):
     if display_bbox:
         img = cv2.cvtColor(img.copy(), cv2.COLOR_HSV2BGR)
         cv2.drawContours(img, rects, -1, (0, 255, 0), 3)
-        # cv2.rectangle(img, (rects[0][0][0][0], rects[0][0][0][1]), (rects[0][0][2][0], rects[0][0][2][1]), (0, 255, 0), 2)
         cv2.imshow("bbox", img)
         cv2.imshow("masked", masked)
         cv2.imshow("thresh", thresh)
@@ -45,7 +48,6 @@ def get_bbox_by_hsv(img, thresh, display_bbox=False):
 
     if len(rects) != 1:
         raise Exception("Could not find gamefield and/or header.")
-
 
     return {
         label: val
@@ -55,43 +57,97 @@ def get_bbox_by_hsv(img, thresh, display_bbox=False):
     }
 
 
-def get_game_bboxes(display_bbox=False):
-    full_bbox = {"top": 0, "left": 0, "width": 1920, "height": 1080}
-    sct = mss()
+def get_game_bboxes(monitor_num=0, display_bbox=False):
+    """
+    Gets bounding boxes for the gamefield and header.
 
-    img = np.array(sct.grab(full_bbox))
+    Parameters
+    ----------
+    monitor_num : int
+        The monitor number to use. Defaults to 0, which is all monitors stitched together.
+    display_bbox : bool
+        Whether to display the bounding boxes at each step. Defaults to False.
+
+    Returns
+    -------
+    header_bbox : dict
+        The bounding box for the header, relative to the provided monitor number.
+    gamefield_bbox : dict
+        The bounding box for the gamefield, relative to the provided monitor number.
+    """
+    with mss() as sct:
+        print(sct.monitors[monitor_num])
+        img = np.array(sct.grab(sct.monitors[monitor_num]))
+
+    if display_bbox:
+        cv2.imshow("full frame", img)
+        cv2.waitKey(-1)
 
     header_bbox = get_bbox_by_hsv(img, THRESH_HEADER, display_bbox)
     gamefield_bbox = get_bbox_by_hsv(img, THRESH_GAMEFIELD, display_bbox)
+    header_bbox = relative_bbox_to_abs(header_bbox, monitor_num)
+    gamefield_bbox = relative_bbox_to_abs(gamefield_bbox, monitor_num)
     return header_bbox, gamefield_bbox
+
+
+def relative_bbox_to_abs(bbox, monitor_num=0):
+    """
+    Converts a bounding box relative to the monitor to an absolute bounding box.
+
+    Parameters
+    ----------
+    bbox : dict
+        The bounding box relative to the monitor.
+    monitor_num : int
+        The monitor number to use. Defaults to 0, which is all monitors stitched together.
+
+    Returns
+    -------
+    bbox : dict
+        The absolute bounding box.
+    """
+    with mss() as sct:
+        monitor = sct.monitors[monitor_num]
+        bbox["left"] += monitor["left"]
+        bbox["top"] += monitor["top"]
+        return bbox
 
 
 def select_game_settings():
     # select correct game settings
     pass
 
+
 def main():
+    MONITOR_NUM = 3
     time.sleep(1)
-    header_bbox, gamefield_bbox = get_game_bboxes()
-    sct = mss()
+    # MUST BE CALLED BEFORE PRESSING PLAY
+    header_bbox, gamefield_bbox = get_game_bboxes(
+        monitor_num=MONITOR_NUM, display_bbox=True
+    )
 
     prev_time = time.time()
     avg_fps = 0
     frame_count = 0
-    while True:
-        frame_count += 1
-        header = np.array(sct.grab(header_bbox))
-        gamefield = np.array(sct.grab(gamefield_bbox))
+    with mss() as sct:
+        while True:
+            frame_count += 1
+            header = np.array(sct.grab(header_bbox))
+            gamefield = np.array(sct.grab(gamefield_bbox))
 
-        # Displayign and counting FPS
-        fps = 1 / (time.time() - prev_time)
-        prev_time = time.time()
-        avg_fps = (avg_fps * frame_count + fps) / (frame_count + 1)
-        cv2.imshow("game", gamefield)
-        cv2.imshow("header", header)
+            # Displaying and counting FPS
+            fps = 1 / (time.time() - prev_time)
+            prev_time = time.time()
+            avg_fps = (avg_fps * frame_count + fps) / (frame_count + 1)
+            cv2.imshow("game", gamefield)
+            cv2.imshow("header", header)
 
-        if (cv2.waitKey(1) & 0xFF) == ord("q"):
-            cv2.destroyAllWindows()
-            break
+            if (cv2.waitKey(1) & 0xFF) == ord("q"):
+                cv2.destroyAllWindows()
+                break
 
     print("Average FPS:", avg_fps)
+
+
+if __name__ == "__main__":
+    main()
