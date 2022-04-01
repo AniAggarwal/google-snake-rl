@@ -1,9 +1,13 @@
 import time
+from pathlib import Path
 
 import numpy as np
 import cv2
 from mss.linux import MSS as mss
-from PIL import Image
+import pyautogui
+
+# Game url:
+# https://www.google.com/fbx?fbx=snake_arcade
 
 # Values that worked on laptop
 # THRESH_HEADER = np.array([[57, 174, 0], [58, 175, 255]])
@@ -11,6 +15,8 @@ from PIL import Image
 # For desktop:
 THRESH_HEADER = np.array([[48, 0, 0], [49, 255, 255]])
 THRESH_GAMEFIELD = np.array([[40, 150, 0], [45, 170, 255]])
+
+ICON_TEMPLATE_PATH = Path("./templates").resolve()
 
 
 def get_bbox_by_hsv(img, thresh, display_bbox=False):
@@ -93,7 +99,6 @@ def get_game_bboxes(monitor_num=0, display_bbox=False):
         The absolute bounding box for the gamefield.
     """
     with mss() as sct:
-        print(sct.monitors[monitor_num])
         img = np.array(sct.grab(sct.monitors[monitor_num]))
 
     if display_bbox:
@@ -130,18 +135,69 @@ def relative_bbox_to_abs(bbox, monitor_num=0):
         return bbox
 
 
-def select_game_settings():
-    # select correct game settings
-    pass
+def click_template_match(template_path, monitor_num=0, display_bbox=False):
+    with mss() as sct:
+        img = np.array(sct.grab(sct.monitors[monitor_num]))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    template = cv2.imread(str(template_path), 0)
+
+    res = cv2.matchTemplate(img, template, cv2.TM_CCOEFF)
+    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+    top_left = max_loc
+    bottom_right = (top_left[0] + template.shape[1], top_left[1] + template.shape[0])
+
+    if display_bbox:
+        cv2.rectangle(img, top_left, bottom_right, 255, 2)
+        cv2.imshow("template match", img)
+        cv2.waitKey(-1)
+
+    center = (
+        top_left[0] + template.shape[1] // 2,
+        top_left[1] + template.shape[0] // 2,
+    )
+
+    # click settings icon
+    pyautogui.click(x=center[0], y=center[1])
+
+
+def select_game_settings(monitor_num=0, display_bbox=False):
+    click_template_match(
+        ICON_TEMPLATE_PATH / "settings-icon.png",
+        monitor_num=monitor_num,
+        display_bbox=display_bbox,
+    )
+    time.sleep(0.5) # wait for settings to load
+
+    click_template_match(
+        ICON_TEMPLATE_PATH / "5-apples-icon.png",
+        monitor_num=monitor_num,
+        display_bbox=display_bbox,
+    )
+    time.sleep(0.5) # wait for settings to load
+
+    click_template_match(
+        ICON_TEMPLATE_PATH / "small-field-icon.png",
+        monitor_num=monitor_num,
+        display_bbox=display_bbox,
+    )
+    time.sleep(0.5) # wait for settings to load
+
 
 
 def main():
     MONITOR_NUM = 3 if len(mss().monitors) > 3 else 0
     time.sleep(1)
+
+    select_game_settings(monitor_num=MONITOR_NUM, display_bbox=False)
+
+    exit()
+
     # MUST BE CALLED BEFORE PRESSING PLAY
     header_bbox, gamefield_bbox = get_game_bboxes(
         monitor_num=MONITOR_NUM, display_bbox=True
     )
+
 
     prev_time = time.time()
     avg_fps = 0
