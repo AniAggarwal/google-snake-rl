@@ -135,27 +135,39 @@ def relative_bbox_to_abs(bbox, monitor_num=0):
         return bbox
 
 
-def click_template_match(template_path, monitor_num=0, display_bbox=False):
+def click_template_match(
+    template_path, x_offset=0, y_offset=0, monitor_num=0, display_bbox=False
+):
     with mss() as sct:
-        img = np.array(sct.grab(sct.monitors[monitor_num]))
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # screenshot is in BGRA format, but we need BGR
+        img = np.array(sct.grab(sct.monitors[monitor_num]))[:, :, :3]
 
-    template = cv2.imread(str(template_path), 0)
+    template = cv2.imread(str(template_path))
 
     res = cv2.matchTemplate(img, template, cv2.TM_CCOEFF)
     min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
     top_left = max_loc
     bottom_right = (top_left[0] + template.shape[1], top_left[1] + template.shape[0])
 
+    center = (
+        top_left[0] + template.shape[1] // 2 + x_offset * template.shape[1],
+        top_left[1] + template.shape[0] // 2 + y_offset * template.shape[0],
+    )
+    # offset x and y range from -0.5 to 0.5, but if they are less/greater than
+    # that, clip to ensure we don't go out of bounds of the template
+    center = (
+        int(np.clip(center[0], 0, img.shape[1])),
+        int(np.clip(center[1], 0, img.shape[0])),
+    )
+
     if display_bbox:
-        cv2.rectangle(img, top_left, bottom_right, 255, 2)
+        print(top_left, bottom_right)
+        print(f"x width: {bottom_right[0] - top_left[0]}, y height: {bottom_right[1] - top_left[1]}")
+        print(f"center: {center}")
+        img = img.copy()  # Needed so that cv2.rectangle doesn't throw an error
+        cv2.rectangle(img, top_left, bottom_right, (0, 0, 255), 2)
         cv2.imshow("template match", img)
         cv2.waitKey(-1)
-
-    center = (
-        top_left[0] + template.shape[1] // 2,
-        top_left[1] + template.shape[0] // 2,
-    )
 
     # click settings icon
     pyautogui.click(x=center[0], y=center[1])
@@ -164,25 +176,30 @@ def click_template_match(template_path, monitor_num=0, display_bbox=False):
 def select_game_settings(monitor_num=0, display_bbox=False):
     click_template_match(
         ICON_TEMPLATE_PATH / "settings-icon.png",
+        x_offset=0,
+        y_offset=0,
         monitor_num=monitor_num,
         display_bbox=display_bbox,
     )
-    time.sleep(0.5) # wait for settings to load
+    time.sleep(1)  # wait for settings to load
 
     click_template_match(
         ICON_TEMPLATE_PATH / "5-apples-icon.png",
+        x_offset=0,
+        y_offset=0,
         monitor_num=monitor_num,
         display_bbox=display_bbox,
     )
-    time.sleep(0.5) # wait for settings to load
+    time.sleep(1)  # wait for settings to load
 
     click_template_match(
-        ICON_TEMPLATE_PATH / "small-field-icon.png",
+        ICON_TEMPLATE_PATH / "small-big-field-icon.png",
+        x_offset=-0.3,
+        y_offset=0,
         monitor_num=monitor_num,
-        display_bbox=display_bbox,
+        display_bbox=True,
     )
-    time.sleep(0.5) # wait for settings to load
-
+    time.sleep(0.5)  # wait for settings to load
 
 
 def main():
@@ -197,7 +214,6 @@ def main():
     header_bbox, gamefield_bbox = get_game_bboxes(
         monitor_num=MONITOR_NUM, display_bbox=True
     )
-
 
     prev_time = time.time()
     avg_fps = 0
