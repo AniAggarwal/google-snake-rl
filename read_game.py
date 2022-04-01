@@ -14,6 +14,23 @@ THRESH_GAMEFIELD = np.array([[40, 150, 0], [45, 170, 255]])
 
 
 def get_bbox_by_hsv(img, thresh, display_bbox=False):
+    """
+    Gets bounding box by provided HSV thresholding.
+
+    Will use the given image to find the single best rectangle that fits the threshold color.
+
+    Parameters
+    ----------
+    img : npt.NDArray
+        The image to look for the bounding box in.
+    thresh : npt.NDArray
+        A numpy array of the form [[lower_h, lower_s, lower_v], [upper_h, upper_s, upper_v]].
+    display_bbox : bool
+        Whether to display the bounding box at each step. Defaults to False.
+
+    Raises
+    ------
+    """
     img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
     mask = cv2.inRange(img, thresh[0, :], thresh[1, :])
@@ -26,7 +43,7 @@ def get_bbox_by_hsv(img, thresh, display_bbox=False):
     )
 
     if len(contours) == 0:
-        raise Exception("Could not find gamefield and/or header.")
+        raise ValueError("Could not find gamefield and/or header.")
 
     rects = []
     for contour in contours:
@@ -47,7 +64,7 @@ def get_bbox_by_hsv(img, thresh, display_bbox=False):
         cv2.waitKey(-1)
 
     if len(rects) != 1:
-        raise Exception("Could not find gamefield and/or header.")
+        raise ValueError("Could not find gamefield and/or header.")
 
     return {
         label: val
@@ -71,9 +88,9 @@ def get_game_bboxes(monitor_num=0, display_bbox=False):
     Returns
     -------
     header_bbox : dict
-        The bounding box for the header, relative to the provided monitor number.
+        The absolute bounding box for the header.
     gamefield_bbox : dict
-        The bounding box for the gamefield, relative to the provided monitor number.
+        The absolute bounding box for the gamefield.
     """
     with mss() as sct:
         print(sct.monitors[monitor_num])
@@ -119,7 +136,7 @@ def select_game_settings():
 
 
 def main():
-    MONITOR_NUM = 3
+    MONITOR_NUM = 3 if len(mss().monitors) > 3 else 0
     time.sleep(1)
     # MUST BE CALLED BEFORE PRESSING PLAY
     header_bbox, gamefield_bbox = get_game_bboxes(
