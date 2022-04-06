@@ -1,6 +1,7 @@
 import time
 from pathlib import Path
-from typing import Iterable
+from pathlib import PurePath
+from typing import Union, Iterable, List, Tuple, Dict
 
 import numpy as np
 import numpy.typing as npt
@@ -11,12 +12,9 @@ import pyautogui
 # Game url:
 # https://www.google.com/fbx?fbx=snake_arcade
 
-# Values that worked on laptop
-# THRESH_HEADER = np.array([[57, 174, 0], [58, 175, 255]])
-# THRESH_GAMEFIELD = np.array([[45, 0, 0], [55, 255, 255]])
-# For desktop:
-THRESH_HEADER = np.array([[40, 0, 0], [55, 255, 255]])
-THRESH_GAMEFIELD = np.array([[40, 150, 0], [45, 170, 255]])
+# TODO make the header work when settings are already selected
+THRESH_HEADER = np.array([[58, 174, 0], [59, 176, 255]])
+THRESH_GAMEFIELD = np.array([[47, 165, 0], [48, 200, 255]])
 
 ICON_TEMPLATE_PATH = Path("./templates").resolve()
 # Mappings of number of pixels away from top left of settings-page.png to each setting
@@ -29,9 +27,14 @@ SETTINGS_PIXEL_MAPPING = {
     "blue_snake": (142, 303),
     "play_button": (118, 374),
 }
+# Mapping of bboxes of the area numbers appear in the header relative to top left of header bbox
+HEADER_PIXEL_BBOXES = {
+    "current_score": [[55, 28], [120, 49]],
+    "top_score": [[161, 28], [226, 49]]
+}
 
 
-def get_bbox_by_hsv(img, thresh, display_bbox=False):
+def get_bbox_by_hsv(img: npt.NDArray, thresh: npt.NDArray, display_bbox: bool=False) -> Dict[str, int]:
     """
     Gets bounding box by provided HSV thresholding.
 
@@ -48,6 +51,8 @@ def get_bbox_by_hsv(img, thresh, display_bbox=False):
 
     Raises
     ------
+    ValueError
+        If the bounding box is not found using given HSV thresholding.
     """
     img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
@@ -73,6 +78,7 @@ def get_bbox_by_hsv(img, thresh, display_bbox=False):
         if len(approx) == 4 and area_percentage > 0.01:
             rects.append(contour)
 
+
     if display_bbox:
         img = cv2.cvtColor(img.copy(), cv2.COLOR_HSV2BGR)
         cv2.drawContours(img, rects, -1, (0, 255, 0), 3)
@@ -92,7 +98,7 @@ def get_bbox_by_hsv(img, thresh, display_bbox=False):
     }
 
 
-def get_game_bboxes(monitor_num=0, display_bbox=False):
+def get_game_bboxes(monitor_num: int=0, display_bbox: bool=False) -> Tuple[Dict[str, int], Dict[str, int]]:
     """
     Gets bounding boxes for the gamefield and header.
 
@@ -124,7 +130,7 @@ def get_game_bboxes(monitor_num=0, display_bbox=False):
     return header_bbox, gamefield_bbox
 
 
-def relative_bbox_to_abs(bbox, monitor_num=0):
+def relative_bbox_to_abs(bbox: Dict[str, int], monitor_num: int=0) -> Dict[str, int]:
     """
     Converts a bounding box relative to the monitor to an absolute bounding box.
 
@@ -147,20 +153,20 @@ def relative_bbox_to_abs(bbox, monitor_num=0):
         return bbox
 
 
-def relative_point_to_abs(point, monitor_num):
+def relative_point_to_abs(point: Tuple[int, int], monitor_num: int=0) -> Tuple[int, int]:
     """
     Converts a point relative to the monitor to an absolute point.
 
     Parameters
     ----------
-    point : Iterable[int, int]
+    point : Tuple[int, int]
         The point relative to the monitor.
     monitor_num : int
         The monitor number to use. Defaults to 0, which is all monitors stitched together.
 
     Returns
     -------
-    point : Iterable[int, int]
+    point : Tuple[int, int]
         The absolute point.
     """
     with mss() as sct:
@@ -169,8 +175,8 @@ def relative_point_to_abs(point, monitor_num):
 
 
 def find_template_match(
-    template_path, match_thresh=0.9, get_center=False, monitor_num=0, display_bbox=False
-):
+    template_path: Union[str, PurePath], match_thresh: float=0.9, get_center: bool=False, monitor_num: int=0, display_bbox: bool=False
+) -> Union[Tuple[int, int], None]:
     with mss() as sct:
         # screenshot is in BGRA format, but we need BGR
         img = np.array(sct.grab(sct.monitors[monitor_num]))[:, :, :3]
@@ -211,7 +217,21 @@ def find_template_match(
     return match_point
 
 
-def select_game_settings(monitor_num=0, display_bbox=False):
+def select_game_settings(monitor_num: int=0, display_bbox: bool=False) -> None:
+    """
+    Selects the game settings.
+
+    Parameters
+    ----------
+    monitor_num : int
+        The monitor number to use. Defaults to 0, which is all monitors stitched together.
+    display_bbox : bool
+        Whether to display the bounding boxes at each step. Defaults to False.
+
+    Returns
+    -------
+    None
+    """
     # find and click settings icon
     settings_center = find_template_match(
         ICON_TEMPLATE_PATH / "settings-icon.png",
@@ -239,11 +259,35 @@ def select_game_settings(monitor_num=0, display_bbox=False):
         print("Could not find settings page. Skipping settings selection.")
         return
 
-    for game_setting, point in SETTINGS_PIXEL_MAPPING.items():
+    for _, point in SETTINGS_PIXEL_MAPPING.items():
         pyautogui.click(
             x=point[0] + settings_page_corner[0], y=point[1] + settings_page_corner[1]
         )
         time.sleep(0.1)
+
+def get_header_score(header_img: npt.NDArray) -> int:
+    """
+    Gets the score from an image of the header.
+
+    Will not look at the top score, only the current one.
+
+    Parameters
+    ----------
+    img : npt.NDArray
+        The image of the header to get the score from.
+
+    Returns
+    -------
+    number : int
+        The current score.
+    """
+    header_img = cv2.cvtColor(header_img, cv2.COLOR_BGR2GRAY)
+    ret, header_img = cv2.threshold(header_img, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+
+    score_roi = header_img[HEADER_PIXEL_BBOXES["current_score"]]
+
+    cv2.imshow("numbers thresh", header_img)
+    return -1 # TODO: make this work
 
 
 def main():
@@ -254,7 +298,7 @@ def main():
 
     # MUST BE CALLED BEFORE PRESSING PLAY
     header_bbox, gamefield_bbox = get_game_bboxes(
-        monitor_num=MONITOR_NUM, display_bbox=True
+        monitor_num=MONITOR_NUM, display_bbox=False
     )
 
     prev_time = time.time()
@@ -265,6 +309,10 @@ def main():
             frame_count += 1
             header = np.array(sct.grab(header_bbox))
             gamefield = np.array(sct.grab(gamefield_bbox))
+
+            # get the current score
+            score = get_header_score(header)
+
 
             # Displaying and counting FPS
             fps = 1 / (time.time() - prev_time)
