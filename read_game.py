@@ -1,7 +1,9 @@
 import time
 from pathlib import Path
+from typing import Iterable
 
 import numpy as np
+import numpy.typing as npt
 import cv2
 from mss.linux import MSS as mss
 import pyautogui
@@ -13,10 +15,20 @@ import pyautogui
 # THRESH_HEADER = np.array([[57, 174, 0], [58, 175, 255]])
 # THRESH_GAMEFIELD = np.array([[45, 0, 0], [55, 255, 255]])
 # For desktop:
-THRESH_HEADER = np.array([[48, 0, 0], [49, 255, 255]])
+THRESH_HEADER = np.array([[40, 0, 0], [55, 255, 255]])
 THRESH_GAMEFIELD = np.array([[40, 150, 0], [45, 170, 255]])
 
 ICON_TEMPLATE_PATH = Path("./templates").resolve()
+# Mappings of number of pixels away from top left of settings-page.png to each setting
+SETTINGS_PIXEL_MAPPING = {
+    "apple": (151, 65),
+    "wall": (198, 109),
+    "5_balls": (242, 157),
+    "snake": (148, 205),
+    "small_field": (198, 253),
+    "blue_snake": (142, 303),
+    "play_button": (118, 374),
+}
 
 
 def get_bbox_by_hsv(img, thresh, display_bbox=False):
@@ -135,8 +147,29 @@ def relative_bbox_to_abs(bbox, monitor_num=0):
         return bbox
 
 
-def click_template_match(
-    template_path, x_offset=0, y_offset=0, monitor_num=0, display_bbox=False
+def relative_point_to_abs(point, monitor_num):
+    """
+    Converts a point relative to the monitor to an absolute point.
+
+    Parameters
+    ----------
+    point : Iterable[int, int]
+        The point relative to the monitor.
+    monitor_num : int
+        The monitor number to use. Defaults to 0, which is all monitors stitched together.
+
+    Returns
+    -------
+    point : Iterable[int, int]
+        The absolute point.
+    """
+    with mss() as sct:
+        monitor = sct.monitors[monitor_num]
+        return (point[0] + monitor["left"], point[1] + monitor["top"])
+
+
+def find_template_match(
+    template_path, match_thresh=0.9, get_center=False, monitor_num=0, display_bbox=False
 ):
     with mss() as sct:
         # screenshot is in BGRA format, but we need BGR
@@ -145,70 +178,79 @@ def click_template_match(
     template = cv2.imread(str(template_path))
 
     res = cv2.matchTemplate(img, template, cv2.TM_CCOEFF)
+
+    # check to make sure a match was found
+    # TODO make this work
+    if not (np.amax(res) > match_thresh):
+        return None
+
     min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
     top_left = max_loc
     bottom_right = (top_left[0] + template.shape[1], top_left[1] + template.shape[0])
 
-    center = (
-        top_left[0] + template.shape[1] // 2 + x_offset * template.shape[1],
-        top_left[1] + template.shape[0] // 2 + y_offset * template.shape[0],
-    )
-    # offset x and y range from -0.5 to 0.5, but if they are less/greater than
-    # that, clip to ensure we don't go out of bounds of the template
-    center = (
-        int(np.clip(center[0], 0, img.shape[1])),
-        int(np.clip(center[1], 0, img.shape[0])),
-    )
+    if get_center:
+        match_point = (
+            top_left[0] + template.shape[1] // 2,
+            top_left[1] + template.shape[0] // 2,
+        )
+        match_point = relative_point_to_abs(match_point, monitor_num)
+    else:
+        match_point = relative_point_to_abs(top_left, monitor_num)
 
     if display_bbox:
         print(top_left, bottom_right)
-        print(f"x width: {bottom_right[0] - top_left[0]}, y height: {bottom_right[1] - top_left[1]}")
-        print(f"center: {center}")
+        print(
+            f"x width: {bottom_right[0] - top_left[0]}, y height: {bottom_right[1] - top_left[1]}"
+        )
+        print(f"center: {match_point}")
         img = img.copy()  # Needed so that cv2.rectangle doesn't throw an error
         cv2.rectangle(img, top_left, bottom_right, (0, 0, 255), 2)
         cv2.imshow("template match", img)
         cv2.waitKey(-1)
 
-    # click settings icon
-    pyautogui.click(x=center[0], y=center[1])
+    return match_point
 
 
 def select_game_settings(monitor_num=0, display_bbox=False):
-    click_template_match(
+    # find and click settings icon
+    settings_center = find_template_match(
         ICON_TEMPLATE_PATH / "settings-icon.png",
-        x_offset=0,
-        y_offset=0,
+        match_thresh=1,
+        get_center=True,
         monitor_num=monitor_num,
         display_bbox=display_bbox,
     )
-    time.sleep(1)  # wait for settings to load
+    if settings_center is None:
+        print("Could not find settings icon. Skipping settings selection.")
+        return
+    pyautogui.click(x=settings_center[0], y=settings_center[1])
+    # wait for settings to load
+    time.sleep(1)
 
-    click_template_match(
-        ICON_TEMPLATE_PATH / "5-apples-icon.png",
-        x_offset=0,
-        y_offset=0,
+    # use absolute positioning relative to settings page template match
+    # to select all settings (because template match wasn't working great)
+    settings_page_corner = find_template_match(
+        ICON_TEMPLATE_PATH / "settings-page.png",
+        get_center=False,
         monitor_num=monitor_num,
         display_bbox=display_bbox,
     )
-    time.sleep(1)  # wait for settings to load
+    if settings_page_corner is None:
+        print("Could not find settings page. Skipping settings selection.")
+        return
 
-    click_template_match(
-        ICON_TEMPLATE_PATH / "small-big-field-icon.png",
-        x_offset=-0.3,
-        y_offset=0,
-        monitor_num=monitor_num,
-        display_bbox=True,
-    )
-    time.sleep(0.5)  # wait for settings to load
+    for game_setting, point in SETTINGS_PIXEL_MAPPING.items():
+        pyautogui.click(
+            x=point[0] + settings_page_corner[0], y=point[1] + settings_page_corner[1]
+        )
+        time.sleep(0.1)
 
 
 def main():
     MONITOR_NUM = 3 if len(mss().monitors) > 3 else 0
-    time.sleep(1)
+    time.sleep(0.5)
 
     select_game_settings(monitor_num=MONITOR_NUM, display_bbox=False)
-
-    exit()
 
     # MUST BE CALLED BEFORE PRESSING PLAY
     header_bbox, gamefield_bbox = get_game_bboxes(
