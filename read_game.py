@@ -14,6 +14,8 @@ import pyautogui
 # https://www.google.com/fbx?fbx=snake_arcade
 
 # TODO list:
+# - there are some weird glitches where screenshot is completely white in certain parts
+#   - fix this by keeping 3-5 frame average of score
 # - detect perfect template matches
 # - detect game end
 # - docstrings for all working functions
@@ -294,41 +296,41 @@ def select_game_settings(
         time.sleep(0.1)
 
 
-def split_img_to_digits(number_img: npt.NDArray) -> List[int]:
-    """
-    Splits a pre-processed header image into each of its digits.
+# def split_img_to_digits(number_img: npt.NDArray) -> List[int]:
+#     """
+#     Splits a pre-processed header image into each of its digits.
 
-    Parameters
-    ----------
-    header_img : npt.NDArray
-        The header image, thresholded, cropped, etc.
+#     Parameters
+#     ----------
+#     header_img : npt.NDArray
+#         The header image, thresholded, cropped, etc.
 
-    Returns
-    -------
-    digits : List[int]
-        The digits in the header.
-    """
-    template_imgs = [
-        cv2.imread(str(DIGIT_TEMPLATE_PATH / f"{digit}.png"), 0) for digit in range(10)
-    ]
+#     Returns
+#     -------
+#     digits : List[int]
+#         The digits in the header.
+#     """
+#     template_imgs = [
+#         cv2.imread(str(DIGIT_TEMPLATE_PATH / f"{digit}.png"), 0) for digit in range(10)
+#     ]
 
-    digits = []
-    for digit_start_x in range(
-        0, number_img.shape[1], HEADER_PIXEL_BBOXES["digit_width"]
-    ):
-        digit_img = number_img[
-            :, digit_start_x : digit_start_x + HEADER_PIXEL_BBOXES["digit_width"]
-        ]
-        reses = [
-            np.amax(cv2.matchTemplate(digit_img, template_img, cv2.TM_CCOEFF_NORMED))
-            for template_img in template_imgs
-        ]
-        digits.append(max(range(len(reses)), key=reses.__getitem__))
+#     digits = []
+#     for digit_start_x in range(
+#         0, number_img.shape[1], HEADER_PIXEL_BBOXES["digit_width"]
+#     ):
+#         digit_img = number_img[
+#             :, digit_start_x : digit_start_x + HEADER_PIXEL_BBOXES["digit_width"]
+#         ]
+#         reses = [
+#             np.amax(cv2.matchTemplate(digit_img, template_img, cv2.TM_CCOEFF_NORMED))
+#             for template_img in template_imgs
+#         ]
+#         digits.append(max(range(len(reses)), key=reses.__getitem__))
 
-    return digits
+#     return digits
 
 
-def get_header_score(header_img: npt.NDArray) -> int:
+def get_header_score(header_img: npt.NDArray) -> Union[int, None]:
     """
     Gets the score from an image of the header.
 
@@ -341,8 +343,8 @@ def get_header_score(header_img: npt.NDArray) -> int:
 
     Returns
     -------
-    number : int
-        The current score.
+    number : Union[int, None]
+        The current score, returns None if no score is found.
     """
     header_img = cv2.cvtColor(header_img, cv2.COLOR_BGR2GRAY)
     ret, header_img = cv2.threshold(
@@ -361,28 +363,56 @@ def get_header_score(header_img: npt.NDArray) -> int:
     cv2.imshow("score_roi", score_roi)  # TODO remove once this works
     # cv2.imwrite(str("number-imgs/" + str(time.time()) + ".png"), score_roi)
 
+    # using a range as DIGIT_TEMPLATE_PATH.iterdir() returns a random order
     template_imgs = [
         cv2.imread(str(DIGIT_TEMPLATE_PATH / f"{digit}.png"), 0) for digit in range(10)
     ]
 
-    score = 0
-    digit_place = 1
+    digits = []
     for digit_start_x in range(
         0, score_roi.shape[1], HEADER_PIXEL_BBOXES["digit_width"]
     ):
         digit_img = score_roi[
             :, digit_start_x : digit_start_x + HEADER_PIXEL_BBOXES["digit_width"]
         ]
-        reses = [
-            np.amax(cv2.matchTemplate(digit_img, template_img, cv2.TM_CCOEFF_NORMED))
-            for template_img in template_imgs
-        ]
-        # digits.append(max(range(len(reses)), key=reses.__getitem__))
-        best_digit = max(range(len(reses)), key=reses.__getitem__)
-        score += digit_place * best_digit
-        digit_place += 1
 
-    return score
+        # check if digit img is empty (or completely white due to glitched screenshot)
+        # if it is, assume we reached end of score
+        if np.count_nonzero(digit_img) == 0 or np.count_nonzero(digit_img == 0) == 1:
+            cv2.imshow("digit_img", digit_img)
+            break
+
+        # reses = [
+        #     np.amax(cv2.matchTemplate(digit_img, template_img, cv2.TM_CCOEFF_NORMED))
+        #     for template_img in template_imgs
+        # ]
+        # # digits.append(max(range(len(reses)), key=reses.__getitem__))
+        # best_digit = max(range(len(reses)), key=reses.__getitem__)
+
+        ious = []
+        for template_img in template_imgs:
+            # if np.array_equal(digit_img, template_img):
+            #     best_digit = template_imgs.index(template_img)
+            #     break
+            # may have to use sum and use float for division
+            ious.append(
+                np.count_nonzero(np.logical_and(digit_img, template_img))
+                / np.count_nonzero(np.logical_or(digit_img, template_img))
+            )
+        # print(sorted(ious, reverse=True))
+
+        best_digit = max(range(len(ious)), key=ious.__getitem__)
+
+        # if best_digit == -1:
+        #     # cv2.imwrite("/home/ani/Desktop/digit_img.png", digit_img)
+        #     # cv2.imwrite("/home/ani/Desktop/template_img.png", template_imgs[0])
+        #     print("Could not find digit template match.")
+        #     # assume we reached end of number
+        #     break
+
+        digits.append(best_digit)
+
+    return None if len(digits) == 0 else int("".join([str(digit) for digit in digits]))
 
 
 def main():
