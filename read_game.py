@@ -1,4 +1,5 @@
 import time
+from collections import deque
 from pathlib import Path
 from pathlib import PurePath
 from typing import Union, Iterable, List, Tuple, Dict
@@ -20,6 +21,7 @@ import pyautogui
 # - detect game end
 # - docstrings for all working functions
 # - create a neatly packaged class of all this later
+# - if settings icon is found but no settings page, assume settings are already set and press play
 
 THRESH_HEADER = np.array([[48, 159, 100], [48, 159, 125]])
 THRESH_GAMEFIELD = np.array([[40, 150, 0], [40, 180, 255]])
@@ -274,7 +276,7 @@ def select_game_settings(
         return
     pyautogui.click(x=settings_center[0], y=settings_center[1])
     # wait for settings to load
-    time.sleep(1)
+    time.sleep(0.5)
 
     # use absolute positioning relative to settings page template match
     # to select all settings (because template match wasn't working great)
@@ -286,7 +288,10 @@ def select_game_settings(
         display_bbox=display_bbox,
     )
     if settings_page_corner is None:
-        print("Could not find settings page. Skipping settings selection.")
+        print(
+            "Could not find settings page. Skipping settings selection and starting game."
+        )
+        pyautogui.press("enter")
         return
 
     for _, point in SETTINGS_PIXEL_MAPPING.items():
@@ -420,12 +425,15 @@ def main():
     time.sleep(0.5)
 
     select_game_settings(monitor_num=MONITOR_NUM, display_bbox=False)
+    time.sleep(0.5)  # wait for game to load
 
     # MUST BE CALLED BEFORE PRESSING PLAY
     header_bbox, gamefield_bbox = get_game_bboxes(
         monitor_num=MONITOR_NUM, display_bbox=False
     )
 
+    # keep history of last few scores in case of screenshot glitches
+    score_deque = deque(maxlen=3)
     prev_time = time.time()
     avg_fps = 0
     frame_count = 0
@@ -437,6 +445,21 @@ def main():
 
             # get the current score
             score = get_header_score(header)
+            if score is not None:
+                score_deque.append(score)
+            else:
+                # TODO: decide if we should only keep last score or a deque
+                score = score_deque[-1]
+
+            cv2.putText(
+                gamefield,
+                f"Score: {score}",
+                (10, 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 255, 255),
+                1,
+            )
 
             # Displaying and counting FPS
             fps = 1 / (time.time() - prev_time)
