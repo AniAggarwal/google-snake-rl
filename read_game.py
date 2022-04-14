@@ -36,8 +36,8 @@ SETTINGS_PIXEL_MAPPING = {
     "wall": (198, 109),
     "5_balls": (242, 157),
     "snake": (148, 205),
-    "small_field": (198, 253),
-    "blue_snake": (142, 303),
+    "small_field": (198, 241),
+    "blue_snake": (142, 287),
     "play_button": (118, 374),
 }
 # Mapping of bboxes of the area numbers appear in the header relative to top left of header bbox
@@ -217,6 +217,10 @@ def find_template_match(
     # check to make sure a match was found
     # done by making sure the best match point is above the match threshold
     if np.amax(res) < match_thresh:
+        if display_bbox:
+            cv2.imshow("template", template)
+            cv2.imshow("img", img)
+            cv2.waitKey(-1)
         return None
 
     min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
@@ -365,7 +369,23 @@ def get_header_score(header_img: npt.NDArray) -> Union[int, None]:
         ][0],
     ]
 
-    cv2.imshow("score_roi", score_roi)  # TODO remove once this works
+    # check if the score roi is empty if no socre or white due to glitched screenshot
+    if np.count_nonzero(score_roi) == 0 or np.count_nonzero(score_roi == 0) == 1:
+        return None
+
+    # score_roi_copy = score_roi.copy()
+
+    # for digit_start_x in range(
+    #     0, score_roi.shape[1], HEADER_PIXEL_BBOXES["digit_width"]
+    # ):
+    #     cv2.line(
+    #         score_roi_copy,
+    #         (digit_start_x, 0),
+    #         (digit_start_x, score_roi.shape[0]),
+    #         255,
+    #         1,
+    #     )
+    # cv2.imshow("score_roi", score_roi_copy)  # TODO remove once this works
     # cv2.imwrite(str("number-imgs/" + str(time.time()) + ".png"), score_roi)
 
     # using a range as DIGIT_TEMPLATE_PATH.iterdir() returns a random order
@@ -373,58 +393,114 @@ def get_header_score(header_img: npt.NDArray) -> Union[int, None]:
         cv2.imread(str(DIGIT_TEMPLATE_PATH / f"{digit}.png"), 0) for digit in range(10)
     ]
 
+    # use vertical lines to see if we are at the end of a digit
+    # flatten score_roi to 1D array where areas where there is part of a
+    # digit vertically are 1, rest are 0. Will be a bool 1D array
+    score_roi_flat = np.any(score_roi, axis=0)
+
+    # TODO remove once this works
+    score_roi_disp = score_roi_flat.copy().astype(np.uint8).reshape(-1, 1)
+    score_roi_disp = np.repeat(score_roi_disp, 18, 1).T * 255
+    cv2.imshow("flat roi", score_roi_disp)
+    cv2.imshow("score roi", score_roi)
+
+    # find the start and end of each digit
+    digit_start = None  # inclusive
+    digit_end = None  # exclusive
+
+    # a list of all the digits found
     digits = []
-    for digit_start_x in range(
-        0, score_roi.shape[1], HEADER_PIXEL_BBOXES["digit_width"]
-    ):
-        digit_img = score_roi[
-            :, digit_start_x : digit_start_x + HEADER_PIXEL_BBOXES["digit_width"]
-        ]
+    for x_pos, is_digit in enumerate(score_roi_flat):
+        if x_pos < score_roi_flat.shape[0] - 1:
+            # if next pixel is start of digit
+            if not is_digit and score_roi_flat[x_pos + 1]:
+                digit_start = x_pos + 1
+            # else if current pixel is end of digit
+            elif is_digit and not score_roi_flat[x_pos + 1]:
+                digit_end = x_pos + 1
 
-        # check if digit img is empty (or completely white due to glitched screenshot)
-        # if it is, assume we reached end of score
-        if np.count_nonzero(digit_img) == 0 or np.count_nonzero(digit_img == 0) == 1:
-            cv2.imshow("digit_img", digit_img)
-            break
+        # check if we have found a digit
+        if digit_start is not None and digit_end is not None:
+            digit_img = score_roi[:, digit_start:digit_end]
+            # reset start and end
+            digit_start, digit_end = None, None
 
-        # reses = [
-        #     np.amax(cv2.matchTemplate(digit_img, template_img, cv2.TM_CCOEFF_NORMED))
-        #     for template_img in template_imgs
-        # ]
-        # # digits.append(max(range(len(reses)), key=reses.__getitem__))
-        # best_digit = max(range(len(reses)), key=reses.__getitem__)
+            # find the digit with the highest match
+            ious = []
+            for template_img in template_imgs:
+                if template_img.shape[1] < digit_img.shape[1]:
+                    pad_width = [
+                        [0, 0],
+                        [0, digit_img.shape[1] - template_img.shape[1]],
+                    ]
+                    template_img = np.pad(template_img, pad_width, "constant")
+                elif template_img.shape[1] > digit_img.shape[1]:
+                    pad_width = [
+                        [0, 0],
+                        [0, template_img.shape[1] - digit_img.shape[1]],
+                    ]
+                    digit_img = np.pad(digit_img, pad_width, "constant")
 
-        ious = []
-        for template_img in template_imgs:
-            # if np.array_equal(digit_img, template_img):
-            #     best_digit = template_imgs.index(template_img)
-            #     break
-            # may have to use sum and use float for division
-            ious.append(
-                np.count_nonzero(np.logical_and(digit_img, template_img))
-                / np.count_nonzero(np.logical_or(digit_img, template_img))
-            )
-        # print(sorted(ious, reverse=True))
-
-        best_digit = max(range(len(ious)), key=ious.__getitem__)
-
-        # if best_digit == -1:
-        #     # cv2.imwrite("/home/ani/Desktop/digit_img.png", digit_img)
-        #     # cv2.imwrite("/home/ani/Desktop/template_img.png", template_imgs[0])
-        #     print("Could not find digit template match.")
-        #     # assume we reached end of number
-        #     break
-
-        digits.append(best_digit)
+                ious.append(
+                    np.count_nonzero(np.logical_and(digit_img, template_img))
+                    / np.count_nonzero(np.logical_or(digit_img, template_img))
+                )
+            best_digit = max(range(len(ious)), key=ious.__getitem__)
+            digits.append(best_digit)
 
     return None if len(digits) == 0 else int("".join([str(digit) for digit in digits]))
+
+
+# for digit_start_x in range(
+#     0, score_roi.shape[1], HEADER_PIXEL_BBOXES["digit_width"]
+# ):
+#     digit_img = score_roi[
+#         :, digit_start_x : digit_start_x + HEADER_PIXEL_BBOXES["digit_width"]
+#     ]
+
+#     # check if digit img is empty (or completely white due to glitched screenshot)
+#     # if it is, assume we reached end of score
+#     if np.count_nonzero(digit_img) == 0 or np.count_nonzero(digit_img == 0) == 1:
+#         break
+
+#     # reses = [
+#     #     np.amax(cv2.matchTemplate(digit_img, template_img, cv2.TM_CCOEFF_NORMED))
+#     #     for template_img in template_imgs
+#     # ]
+#     # # digits.append(max(range(len(reses)), key=reses.__getitem__))
+#     # best_digit = max(range(len(reses)), key=reses.__getitem__)
+
+#     ious = []
+#     for template_img in template_imgs:
+#         # if np.array_equal(digit_img, template_img):
+#         #     best_digit = template_imgs.index(template_img)
+#         #     break
+#         # may have to use sum and use float for division
+#         ious.append(
+#             np.count_nonzero(np.logical_and(digit_img, template_img))
+#             / np.count_nonzero(np.logical_or(digit_img, template_img))
+#         )
+#     # print(sorted(ious, reverse=True))
+
+#     best_digit = max(range(len(ious)), key=ious.__getitem__)
+
+#     # if best_digit == -1:
+#     #     # cv2.imwrite("/home/ani/Desktop/digit_img.png", digit_img)
+#     #     # cv2.imwrite("/home/ani/Desktop/template_img.png", template_imgs[0])
+#     #     print("Could not find digit template match.")
+#     #     # assume we reached end of number
+#     #     break
+
+#     digits.append(best_digit)
+
+# return None if len(digits) == 0 else int("".join([str(digit) for digit in digits]))
 
 
 def main():
     MONITOR_NUM = 3 if len(mss().monitors) > 3 else 0
     time.sleep(0.5)
 
-    select_game_settings(monitor_num=MONITOR_NUM, display_bbox=False)
+    select_game_settings(match_thresh=0.9, monitor_num=MONITOR_NUM, display_bbox=False)
     time.sleep(0.5)  # wait for game to load
 
     # MUST BE CALLED BEFORE PRESSING PLAY
@@ -434,6 +510,7 @@ def main():
 
     # keep history of last few scores in case of screenshot glitches
     score_deque = deque(maxlen=3)
+    score_change_history = []
     prev_time = time.time()
     avg_fps = 0
     frame_count = 0
@@ -446,6 +523,9 @@ def main():
             # get the current score
             score = get_header_score(header)
             if score is not None:
+                if len(score_deque) > 0 and score != score_deque[-1]:
+                    score_change_history.append(score)
+                    print(score)
                 score_deque.append(score)
             else:
                 # TODO: decide if we should only keep last score or a deque
@@ -466,13 +546,14 @@ def main():
             prev_time = time.time()
             avg_fps = (avg_fps * frame_count + fps) / (frame_count + 1)
             cv2.imshow("game", gamefield)
-            cv2.imshow("header", header)
+            # cv2.imshow("header", header)
 
             if (cv2.waitKey(1) & 0xFF) == ord("q"):
                 cv2.destroyAllWindows()
                 break
 
     print("Average FPS:", avg_fps)
+    print("Score history:", score_change_history)
 
 
 if __name__ == "__main__":
