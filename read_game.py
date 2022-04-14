@@ -15,14 +15,10 @@ import pyautogui
 # https://www.google.com/fbx?fbx=snake_arcade
 
 # TODO list:
-# - don't select settings again if already choosen
 # - there are some weird glitches where screenshot is completely white in certain parts
-#   - fix this by keeping 3-5 frame average of score
-# - detect perfect template matches
 # - detect game end
 # - docstrings for all working functions
 # - create a neatly packaged class of all this later
-# - if settings icon is found but no settings page, assume settings are already set and press play
 
 THRESH_HEADER = np.array([[48, 159, 100], [48, 159, 125]])
 THRESH_GAMEFIELD = np.array([[40, 150, 0], [40, 180, 255]])
@@ -403,6 +399,27 @@ def get_header_score(
     return None if len(digits) == 0 else int("".join([str(digit) for digit in digits]))
 
 
+def check_game_end(header_img: npt.NDArray, header_thresh: float = 30.0) -> bool:
+    """
+    Checks if the game is over.
+
+    Parameters
+    ----------
+    header_img : npt.NDArray
+        The image of the header to check if the game is over.
+    header_thresh : float
+        The threshold to use for the game end check. Defaults to 30.0.
+        Calibrate this by looking at the mean header while game is and isn't over.
+
+    Returns
+    -------
+    bool
+        True if the game is over, False otherwise.
+    """
+    # check if game is over by seeing if there has been a signficant change in the mean header img
+    return np.mean(header_img) < header_thresh
+
+
 def main():
     MONITOR_NUM = 3 if len(mss().monitors) > 3 else 0
     time.sleep(0.5)
@@ -427,6 +444,10 @@ def main():
             frame_count += 1
             header = np.array(sct.grab(header_bbox))
             gamefield = np.array(sct.grab(gamefield_bbox))
+
+            # check if game is over
+            if check_game_end(header):
+                print("Game over")
 
             # get the current score
             score = get_header_score(header)
