@@ -15,6 +15,7 @@ import pyautogui
 # https://www.google.com/fbx?fbx=snake_arcade
 
 # TODO list:
+# - don't select settings again if already choosen
 # - there are some weird glitches where screenshot is completely white in certain parts
 #   - fix this by keeping 3-5 frame average of score
 # - detect perfect template matches
@@ -42,17 +43,13 @@ SETTINGS_PIXEL_MAPPING = {
 }
 # Mapping of bboxes of the area numbers appear in the header relative to top left of header bbox
 HEADER_PIXEL_BBOXES = {
-    # "full_bbox": [[55, 28], [120, 49]],
-    # "top_score": [[161, 28], [226, 49]],
     "digit_start_top_left": [59, 29],
     "digit_end_bottom_right": [125, 47],
-    "digit_width": 11,
-    "digit_height": 18,
 }
 
 
 def get_bbox_by_hsv(
-    img: npt.NDArray, thresh: npt.NDArray, display_bbox: bool = False
+    img: npt.NDArray, thresh: npt.NDArray, display_steps: bool = False
 ) -> Dict[str, int]:
     """
     Gets bounding box by provided HSV thresholding.
@@ -65,7 +62,7 @@ def get_bbox_by_hsv(
         The image to look for the bounding box in.
     thresh : npt.NDArray
         A numpy array of the form [[lower_h, lower_s, lower_v], [upper_h, upper_s, upper_v]].
-    display_bbox : bool
+    display_steps : bool
         Whether to display the bounding box at each step. Defaults to False.
 
     Raises
@@ -84,7 +81,7 @@ def get_bbox_by_hsv(
         thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
     )
 
-    if display_bbox:
+    if display_steps:
         img = cv2.cvtColor(img.copy(), cv2.COLOR_HSV2BGR)
         cv2.imshow("masked", masked)
         cv2.imshow("thresh", thresh)
@@ -103,7 +100,7 @@ def get_bbox_by_hsv(
         if len(approx) == 4 and area_percentage > 0.01:
             rects.append(contour)
 
-    if display_bbox:
+    if display_steps:
         cv2.drawContours(img, rects, -1, (0, 255, 0), 3)
         cv2.imshow("bbox", img)
         cv2.waitKey(-1)
@@ -120,7 +117,7 @@ def get_bbox_by_hsv(
 
 
 def get_game_bboxes(
-    monitor_num: int = 0, display_bbox: bool = False
+    monitor_num: int = 0, display_steps: bool = False
 ) -> Tuple[Dict[str, int], Dict[str, int]]:
     """
     Gets bounding boxes for the gamefield and header.
@@ -129,7 +126,7 @@ def get_game_bboxes(
     ----------
     monitor_num : int
         The monitor number to use. Defaults to 0, which is all monitors stitched together.
-    display_bbox : bool
+    display_steps : bool
         Whether to display the bounding boxes at each step. Defaults to False.
 
     Returns
@@ -142,12 +139,12 @@ def get_game_bboxes(
     with mss() as sct:
         img = np.array(sct.grab(sct.monitors[monitor_num]))
 
-    if display_bbox:
+    if display_steps:
         cv2.imshow("full frame", img)
         cv2.waitKey(-1)
 
-    header_bbox = get_bbox_by_hsv(img, THRESH_HEADER, display_bbox)
-    gamefield_bbox = get_bbox_by_hsv(img, THRESH_GAMEFIELD, display_bbox)
+    header_bbox = get_bbox_by_hsv(img, THRESH_HEADER, display_steps)
+    gamefield_bbox = get_bbox_by_hsv(img, THRESH_GAMEFIELD, display_steps)
     header_bbox = relative_bbox_to_abs(header_bbox, monitor_num)
     gamefield_bbox = relative_bbox_to_abs(gamefield_bbox, monitor_num)
     return header_bbox, gamefield_bbox
@@ -204,7 +201,7 @@ def find_template_match(
     match_thresh: float = 0.9,
     get_center: bool = False,
     monitor_num: int = 0,
-    display_bbox: bool = False,
+    display_steps: bool = False,
 ) -> Union[Tuple[int, int], None]:
     with mss() as sct:
         # screenshot is in BGRA format, but we need BGR
@@ -217,7 +214,7 @@ def find_template_match(
     # check to make sure a match was found
     # done by making sure the best match point is above the match threshold
     if np.amax(res) < match_thresh:
-        if display_bbox:
+        if display_steps:
             cv2.imshow("template", template)
             cv2.imshow("img", img)
             cv2.waitKey(-1)
@@ -236,7 +233,7 @@ def find_template_match(
     else:
         match_point = relative_point_to_abs(top_left, monitor_num)
 
-    if display_bbox:
+    if display_steps:
         print(top_left, bottom_right)
         print(
             f"x width: {bottom_right[0] - top_left[0]}, y height: {bottom_right[1] - top_left[1]}"
@@ -251,7 +248,7 @@ def find_template_match(
 
 
 def select_game_settings(
-    match_thresh: float = 0.9, monitor_num: int = 0, display_bbox: bool = False
+    match_thresh: float = 0.9, monitor_num: int = 0, display_steps: bool = False
 ) -> None:
     """
     Selects the game settings.
@@ -260,7 +257,7 @@ def select_game_settings(
     ----------
     monitor_num : int
         The monitor number to use. Defaults to 0, which is all monitors stitched together.
-    display_bbox : bool
+    display_steps : bool
         Whether to display the bounding boxes at each step. Defaults to False.
 
     Returns
@@ -273,7 +270,7 @@ def select_game_settings(
         match_thresh=match_thresh,
         get_center=True,
         monitor_num=monitor_num,
-        display_bbox=display_bbox,
+        display_steps=display_steps,
     )
     if settings_center is None:
         print("Could not find settings icon. Skipping settings selection.")
@@ -289,7 +286,7 @@ def select_game_settings(
         get_center=False,
         match_thresh=match_thresh,
         monitor_num=monitor_num,
-        display_bbox=display_bbox,
+        display_steps=display_steps,
     )
     if settings_page_corner is None:
         print(
@@ -305,41 +302,9 @@ def select_game_settings(
         time.sleep(0.1)
 
 
-# def split_img_to_digits(number_img: npt.NDArray) -> List[int]:
-#     """
-#     Splits a pre-processed header image into each of its digits.
-
-#     Parameters
-#     ----------
-#     header_img : npt.NDArray
-#         The header image, thresholded, cropped, etc.
-
-#     Returns
-#     -------
-#     digits : List[int]
-#         The digits in the header.
-#     """
-#     template_imgs = [
-#         cv2.imread(str(DIGIT_TEMPLATE_PATH / f"{digit}.png"), 0) for digit in range(10)
-#     ]
-
-#     digits = []
-#     for digit_start_x in range(
-#         0, number_img.shape[1], HEADER_PIXEL_BBOXES["digit_width"]
-#     ):
-#         digit_img = number_img[
-#             :, digit_start_x : digit_start_x + HEADER_PIXEL_BBOXES["digit_width"]
-#         ]
-#         reses = [
-#             np.amax(cv2.matchTemplate(digit_img, template_img, cv2.TM_CCOEFF_NORMED))
-#             for template_img in template_imgs
-#         ]
-#         digits.append(max(range(len(reses)), key=reses.__getitem__))
-
-#     return digits
-
-
-def get_header_score(header_img: npt.NDArray) -> Union[int, None]:
+def get_header_score(
+    header_img: npt.NDArray, display_steps: bool = False
+) -> Union[int, None]:
     """
     Gets the score from an image of the header.
 
@@ -349,6 +314,8 @@ def get_header_score(header_img: npt.NDArray) -> Union[int, None]:
     ----------
     img : npt.NDArray
         The image of the header to get the score from.
+    display_steps : bool
+        Whether to display the steps taken to get the score for debugging. Defaults to False.
 
     Returns
     -------
@@ -373,21 +340,6 @@ def get_header_score(header_img: npt.NDArray) -> Union[int, None]:
     if np.count_nonzero(score_roi) == 0 or np.count_nonzero(score_roi == 0) == 1:
         return None
 
-    # score_roi_copy = score_roi.copy()
-
-    # for digit_start_x in range(
-    #     0, score_roi.shape[1], HEADER_PIXEL_BBOXES["digit_width"]
-    # ):
-    #     cv2.line(
-    #         score_roi_copy,
-    #         (digit_start_x, 0),
-    #         (digit_start_x, score_roi.shape[0]),
-    #         255,
-    #         1,
-    #     )
-    # cv2.imshow("score_roi", score_roi_copy)  # TODO remove once this works
-    # cv2.imwrite(str("number-imgs/" + str(time.time()) + ".png"), score_roi)
-
     # using a range as DIGIT_TEMPLATE_PATH.iterdir() returns a random order
     template_imgs = [
         cv2.imread(str(DIGIT_TEMPLATE_PATH / f"{digit}.png"), 0) for digit in range(10)
@@ -398,11 +350,11 @@ def get_header_score(header_img: npt.NDArray) -> Union[int, None]:
     # digit vertically are 1, rest are 0. Will be a bool 1D array
     score_roi_flat = np.any(score_roi, axis=0)
 
-    # TODO remove once this works
-    score_roi_disp = score_roi_flat.copy().astype(np.uint8).reshape(-1, 1)
-    score_roi_disp = np.repeat(score_roi_disp, 18, 1).T * 255
-    cv2.imshow("flat roi", score_roi_disp)
-    cv2.imshow("score roi", score_roi)
+    if display_steps:
+        score_roi_disp = score_roi_flat.copy().astype(np.uint8).reshape(-1, 1)
+        score_roi_disp = np.repeat(score_roi_disp, 18, 1).T * 255
+        cv2.imshow("flat roi", score_roi_disp)
+        cv2.imshow("score roi", score_roi)
 
     # find the start and end of each digit
     digit_start = None  # inclusive
@@ -451,66 +403,20 @@ def get_header_score(header_img: npt.NDArray) -> Union[int, None]:
     return None if len(digits) == 0 else int("".join([str(digit) for digit in digits]))
 
 
-# for digit_start_x in range(
-#     0, score_roi.shape[1], HEADER_PIXEL_BBOXES["digit_width"]
-# ):
-#     digit_img = score_roi[
-#         :, digit_start_x : digit_start_x + HEADER_PIXEL_BBOXES["digit_width"]
-#     ]
-
-#     # check if digit img is empty (or completely white due to glitched screenshot)
-#     # if it is, assume we reached end of score
-#     if np.count_nonzero(digit_img) == 0 or np.count_nonzero(digit_img == 0) == 1:
-#         break
-
-#     # reses = [
-#     #     np.amax(cv2.matchTemplate(digit_img, template_img, cv2.TM_CCOEFF_NORMED))
-#     #     for template_img in template_imgs
-#     # ]
-#     # # digits.append(max(range(len(reses)), key=reses.__getitem__))
-#     # best_digit = max(range(len(reses)), key=reses.__getitem__)
-
-#     ious = []
-#     for template_img in template_imgs:
-#         # if np.array_equal(digit_img, template_img):
-#         #     best_digit = template_imgs.index(template_img)
-#         #     break
-#         # may have to use sum and use float for division
-#         ious.append(
-#             np.count_nonzero(np.logical_and(digit_img, template_img))
-#             / np.count_nonzero(np.logical_or(digit_img, template_img))
-#         )
-#     # print(sorted(ious, reverse=True))
-
-#     best_digit = max(range(len(ious)), key=ious.__getitem__)
-
-#     # if best_digit == -1:
-#     #     # cv2.imwrite("/home/ani/Desktop/digit_img.png", digit_img)
-#     #     # cv2.imwrite("/home/ani/Desktop/template_img.png", template_imgs[0])
-#     #     print("Could not find digit template match.")
-#     #     # assume we reached end of number
-#     #     break
-
-#     digits.append(best_digit)
-
-# return None if len(digits) == 0 else int("".join([str(digit) for digit in digits]))
-
-
 def main():
     MONITOR_NUM = 3 if len(mss().monitors) > 3 else 0
     time.sleep(0.5)
 
-    select_game_settings(match_thresh=0.9, monitor_num=MONITOR_NUM, display_bbox=False)
+    select_game_settings(match_thresh=0.9, monitor_num=MONITOR_NUM, display_steps=False)
     time.sleep(0.5)  # wait for game to load
 
     # MUST BE CALLED BEFORE PRESSING PLAY
     header_bbox, gamefield_bbox = get_game_bboxes(
-        monitor_num=MONITOR_NUM, display_bbox=False
+        monitor_num=MONITOR_NUM, display_steps=False
     )
 
     # keep history of last few scores in case of screenshot glitches
     score_deque = deque(maxlen=3)
-    score_change_history = []
     prev_time = time.time()
     avg_fps = 0
     frame_count = 0
@@ -523,9 +429,6 @@ def main():
             # get the current score
             score = get_header_score(header)
             if score is not None:
-                if len(score_deque) > 0 and score != score_deque[-1]:
-                    score_change_history.append(score)
-                    print(score)
                 score_deque.append(score)
             else:
                 # TODO: decide if we should only keep last score or a deque
@@ -553,7 +456,6 @@ def main():
                 break
 
     print("Average FPS:", avg_fps)
-    print("Score history:", score_change_history)
 
 
 if __name__ == "__main__":
