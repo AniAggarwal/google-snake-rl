@@ -407,7 +407,9 @@ def main():
     MONITOR_NUM = 3 if len(mss().monitors) > 3 else 0
     time.sleep(0.5)
 
-    select_game_settings(match_thresh=0.9, monitor_num=MONITOR_NUM, display_steps=False)
+    select_game_settings(
+        match_thresh=0.95, monitor_num=MONITOR_NUM, display_steps=False
+    )
     time.sleep(0.5)  # wait for game to load
 
     # MUST BE CALLED BEFORE PRESSING PLAY
