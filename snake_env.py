@@ -7,6 +7,13 @@ from gym.spaces import Discrete, Box
 
 from snake_game import SnakeGame
 
+# TODOs:
+# - Figure out how to handle quiting the game
+# - Resolve super laggy video when using namedWindow
+#   - Maybe resolve by just moving the namedWindow during the first render
+# - Add a delay between selecting settings and checking for header/gamefield as it sometimes fails
+#   - This should be solved but leaving here for now
+
 
 class SnakeEnv(Env):
     def __init__(
@@ -38,7 +45,8 @@ class SnakeEnv(Env):
         """int: Previous score, helps keep track of rewards."""
 
         # for rendering
-        self.render_window = cv2.namedWindow("Snake Game", cv2.WND_PROP_TOPMOST)
+        self.render_window_name = "Snake Game"
+        cv2.namedWindow(self.render_window_name, cv2.WINDOW_AUTOSIZE)
 
     def step(self, action):
         # Apply action to the state
@@ -49,7 +57,7 @@ class SnakeEnv(Env):
         self.state, score, game_over = self.game.get_state()
 
         # calcualte the reward
-        reward = self.prev_score - score
+        reward = score - self.prev_score
         self.prev_score = score
         # TODO figure out if I should punish for losing the game
         if game_over:
@@ -69,6 +77,11 @@ class SnakeEnv(Env):
         self.game.reset()
 
     def render(self):
+        # for initial case before first step
+        if self.state is None:
+            self._first_render()
+            return
+
         img = self.state.copy()
         cv2.putText(
             img,
@@ -79,18 +92,45 @@ class SnakeEnv(Env):
             (255, 255, 255),
             1,
         )
-        cv2.moveWindow(self.render_window, 1000, 100)
-        cv2.imshow(self.render_window, img)
+        cv2.imshow(self.render_window_name, img)
 
         if (cv2.waitKey(1) & 0xFF) == ord("q"):
-            cv2.destroyAllWindows()
-            # TODO figure out if I should just kill this program here
-            exit()
+            self.close()
+
+    def _first_render(self):
+        """Renders the first frame of the game.
+
+        It is neccesary to do this step seperately from the render()
+        method as the window needs to be moved out of the way and then
+        the focus needs to be returned to the game.
+        """
+
+        cv2.moveWindow(self.render_window_name, 1000, 100)
+        cv2.imshow(self.render_window_name, np.zeros(self.observation_space.shape))
+        self.game.focus_game()
+
+    def close(self):
+        """Closes the render window and exits the game."""
+        cv2.destroyAllWindows()
+        # TODO: figure out how to send the signal to the train loop to keep so that the model is saved
+        exit()  # for now
 
 
 if __name__ == "__main__":
+    print("Running a SnakeEnv test with a random agent")
     env = SnakeEnv()
-    env.reset()
-    for i in range(1000):
-        env.step(env.action_space.sample())
-        env.render()
+
+    episode_count = 3
+    for episode in range(episode_count):
+        obs = env.reset()
+        done = False
+        tot_score = 0
+
+        while not done:
+            env.render()
+            action = env.action_space.sample()
+            obs, reward, done, info = env.step(action)
+            tot_score += reward
+
+        print(f"Episode {episode} finished with score {tot_score}")
+

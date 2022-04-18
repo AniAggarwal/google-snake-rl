@@ -23,23 +23,26 @@ class SnakeGame:
     Parameters
     ----------
     monitor_num : int
-        The number of the monitor to use. Defaults to None, and if not specified during instantiation, must be specified in calibrate().
+        The number of the monitor to use. Defaults to None, and if not
+        specified during instantiation, must be specified in calibrate().
     template_path : str or PurePath
-        The path to the directory containing the templates.
-        Defaults to None, which will use the templates in the SnakeGame directory.
+        The path to the directory containing the templates. Defaults to
+        None, which will use the templates in the SnakeGame directory.
     verbose_mode : bool
         Whether to print out extra information. Defaults to False.
 
     Methods
     -------
     calibrate()
-        Calibrates the game by settings up the correct settings and finding the bounding boxes of the game elements.
+        Calibrates the game settings and bounding boxes.
     get_state()
         Gets the current game state in the form of an image of the gamefield.
     reset()
         Resets the game.
     send_key(key)
         Sends a key to the game.
+    focus_game()
+        Focuses on the game by clicking on the gamefield area.
     """
 
     def __init__(
@@ -79,24 +82,29 @@ class SnakeGame:
             "blue_snake": (142, 287),
             "play_button": (118, 374),
         }
-        """dict[str, tuple]: Mappings of number of pixels away from top left of settings-page.png to each setting."""
+        """dict[str, tuple]: Mappings of number of pixels away from
+        top left of settings-page.png to each setting."""
         self._header_pixel_bboxes = {
             "digit_start_top_left": (59, 29),
             "digit_end_bottom_right": (125, 47),
         }
-        """dict[str, tuple]: Mapping of bboxes of the area numbers appear in the header relative to top left of header bbox."""
+        """dict[str, tuple]: Mapping of bboxes of the area numbers
+        appear in the header relative to top left of header bbox."""
 
         self._sct = mss()
         """mss: The mss object to use for taking screenshots."""
 
     def calibrate(self, monitor_num: int = None) -> None:
-        """
-        Calibrates the game by settings up the correct settings and finding the bounding boxes of the game elements.
+        """Calibrates the game.
+
+        Calibrates by settings up the correct settings and finding
+        the bounding boxes of the game elements.
 
         Parameters
         ----------
         monitor_num : int
-            The number of the monitor to use. Defaults to None, which will use the monitor number specified in the SnakeGame object.
+            The number of the monitor to use. Defaults to None, which
+            will use the monitor number specified in the SnakeGame object.
 
         Returns:
         --------
@@ -104,22 +112,21 @@ class SnakeGame:
 
         Raises
         ------
-        ValueError if the monitor number is not specified and the SnakeGame object does not have a monitor number specified.
+        ValueError if the monitor number is not specified and the
+        SnakeGame object does not have a monitor number specified.
         """
 
         if monitor_num is not None:
             self._monitor_num = monitor_num
             """int: The number of the monitor to use."""
         if self._monitor_num is None:
-            raise ValueError("Monitor number must be specified either in calibrate() or when this object is instantiated.")
-
-        # before setting up settings, refresh the page
-        pyautogui.press("f5")
-        time.sleep(1)
+            raise ValueError(
+                "Monitor number must be specified either in calibrate() or when this object is instantiated."
+            )
 
         # will set game settings and get game bounding box
         self._select_game_settings(match_thresh=0.95)
-        time.sleep(0.5)  # wait for game to load
+        time.sleep(1)  # wait for game to load
 
         # MUST BE CALLED BEFORE PRESSING PLAY
         self._header_bbox, self._gamefield_bbox = self._get_game_bboxes()
@@ -130,8 +137,7 @@ class SnakeGame:
         self._score_deque.append(0)
 
     def get_state(self) -> Tuple[npt.NDArray, int, bool]:
-        """
-        Gets the current game state in the form of an image of the gamefield.
+        """Gets the current game state as an image of the gamefield.
 
         Parameters
         ----------
@@ -179,8 +185,7 @@ class SnakeGame:
         return gamefield[:, :, :3], score, game_over
 
     def reset(self) -> None:
-        """
-        Resets the game by pressing the play button.
+        """Resets the game by pressing the play button.
 
         Parameters
         ----------
@@ -190,12 +195,13 @@ class SnakeGame:
         -------
         None
         """
+        # first focus on game by clicking on the gamefield area
+        self.focus_game()
         pyautogui.press("enter")
         time.sleep(0.5)
 
     def send_key(self, key: str) -> None:
-        """
-        Sends a key to the game.
+        """Sends a key to the game.
 
         Parameters
         ----------
@@ -216,19 +222,33 @@ class SnakeGame:
             )
         pyautogui.press(key)
 
+    def focus_game(self) -> None:
+        """Focuses on the game by clicking on the gamefield area.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
+        # first focus on game by clicking on the gamefield area
+        pyautogui.click(x=self._gamefield_bbox["left"], y=self._gamefield_bbox["top"])
+
     def _check_game_end(
         self, header_img: npt.NDArray, header_thresh: float = 30.0
     ) -> bool:
-        """
-        Checks if the game is over.
+        """Checks if the game is over.
 
         Parameters
         ----------
         header_img : npt.NDArray
             The image of the header to check if the game is over.
         header_thresh : float
-            The threshold to use for the game end check. Defaults to 30.0.
-            Calibrate this by looking at the mean header while game is and isn't over.
+            The threshold to use for the game end check.
+            Defaults to 30.0. Calibrate this by looking
+            at the mean header while game is and isn't over.
 
         Returns
         -------
@@ -239,8 +259,7 @@ class SnakeGame:
         return np.mean(header_img) < header_thresh
 
     def _get_header_score(self, header_img: npt.NDArray) -> Union[int, None]:
-        """
-        Gets the score from an image of the header.
+        """Gets the score from an image of the header.
 
         Will not look at the high score, only the current score.
 
@@ -338,8 +357,7 @@ class SnakeGame:
         )
 
     def _select_game_settings(self, match_thresh: float = 0.9) -> None:
-        """
-        Selects the game settings.
+        """Selects the game settings.
 
         Parameters
         ----------
@@ -390,6 +408,24 @@ class SnakeGame:
         match_thresh: float = 0.9,
         get_center: bool = False,
     ) -> Union[Tuple[int, int], None]:
+        """Finds the template match.
+
+        Parameters
+        ----------
+        template_path : Union[str, PurePath]
+            Path to the template.
+        match_thresh : float
+            How tolerate to be for imperfect matches.
+        get_center : bool
+            Whether to return the center of the template match or
+            the top left corner.
+
+        Returns
+        -------
+        Union[Tuple[int, int], None]
+            The center of the template match if get_center is True, otherwise
+            the top left corner of the template match.
+        """
         with mss() as sct:
             # screenshot is in BGRA format, but we need BGR
             img = np.array(sct.grab(sct.monitors[self._monitor_num]))[:, :, :3]
@@ -437,8 +473,7 @@ class SnakeGame:
         return match_point
 
     def _relative_point_to_abs(self, point: Tuple[int, int]) -> Tuple[int, int]:
-        """
-        Converts a point relative to the monitor to an absolute point.
+        """Converts a point relative to the monitor to an absolute point.
 
         Parameters
         ----------
@@ -455,8 +490,7 @@ class SnakeGame:
             return (point[0] + monitor["left"], point[1] + monitor["top"])
 
     def _get_game_bboxes(self) -> Tuple[Dict[str, int], Dict[str, int]]:
-        """
-        Gets bounding boxes for the gamefield and header.
+        """Gets bounding boxes for the gamefield and header.
 
         Returns
         -------
@@ -479,17 +513,24 @@ class SnakeGame:
         return header_bbox, gamefield_bbox
 
     def _get_bbox_by_hsv(self, img: npt.NDArray, thresh: npt.NDArray) -> Dict[str, int]:
-        """
-        Gets bounding box by provided HSV thresholding.
+        """Gets bounding box by provided HSV thresholding.
 
-        Will use the given image to find the single best rectangle that fits the threshold color.
+        Will use the given image to find the single best rectangle that
+        fits the threshold color.
 
         Parameters
         ----------
         img : npt.NDArray
             The image to look for the bounding box in.
         thresh : npt.NDArray
-            A numpy array of the form [[lower_h, lower_s, lower_v], [upper_h, upper_s, upper_v]].
+            A numpy array of the form
+            [[lower_h, lower_s, lower_v], [upper_h, upper_s, upper_v]].
+
+        Returns
+        -------
+        bbox : dict[str, int]
+            The box bounding the given color in form
+            {'left': int, 'top': int, 'width': int, 'height': int}.
 
         Raises
         ------
@@ -542,8 +583,7 @@ class SnakeGame:
         }
 
     def _relative_bbox_to_abs(self, bbox: Dict[str, int]) -> Dict[str, int]:
-        """
-        Converts a bounding box relative to the monitor to an absolute bounding box.
+        """Converts a bounding box relative to the monitor to an absolute bounding box.
 
         Parameters
         ----------
