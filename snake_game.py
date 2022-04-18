@@ -44,28 +44,28 @@ class SnakeGame:
         template_path: Union[str, PurePath] = None,
         verbose_mode: bool = False,
     ):
-        self.monitor_num = monitor_num
+        self._monitor_num = monitor_num
         """int: The number of the monitor to use."""
-        self.verbose_mode = verbose_mode
+        self._verbose_mode = verbose_mode
         """bool: Whether to print out extra information."""
 
-        self.thresh_header = np.array([[48, 159, 100], [48, 159, 125]])
+        self._thresh_header = np.array([[48, 159, 100], [48, 159, 125]])
         """npt.NDArray: The color threshold for the header."""
-        self.thresh_gamefield = np.array([[40, 150, 0], [40, 180, 255]])
+        self._thresh_gamefield = np.array([[40, 150, 0], [40, 180, 255]])
         """npt.NDArray: The color threshold for the gamefield."""
 
         if template_path is None:
             template_path = Path("./templates").resolve()
         if not isinstance(template_path, PurePath):
             template_path = Path(template_path).resolve()
-        self.template_path = template_path
+        self._template_path = template_path
         """Path: The path to the templates to use for matches."""
-        self.icon_template_path = self.template_path / "icons"
+        self._icon_template_path = self._template_path / "icons"
         """Path: The path to the icons templates to use for UI element matches."""
-        self.digit_template_path = self.template_path / "digits"
+        self._digit_template_path = self._template_path / "digits"
         """Path: The path to the digits templates to use to find the score."""
 
-        self.settings_pixel_mapping = {
+        self._settings_pixel_mapping = {
             "apple": (151, 65),
             "wall": (198, 109),
             "5_balls": (242, 157),
@@ -75,14 +75,14 @@ class SnakeGame:
             "play_button": (118, 374),
         }
         """dict[str, tuple]: Mappings of number of pixels away from top left of settings-page.png to each setting."""
-        self.header_pixel_bboxes = {
+        self._header_pixel_bboxes = {
             "digit_start_top_left": (59, 29),
             "digit_end_bottom_right": (125, 47),
         }
         """dict[str, tuple]: Mapping of bboxes of the area numbers appear in the header relative to top left of header bbox."""
 
-        # TODO resolve super glitchy screenshot stream by initializing the mss thing once
-        self.sct = mss()
+        self._sct = mss()
+        """mss: The mss object to use for taking screenshots."""
 
     def calibrate(self) -> None:
         """
@@ -101,10 +101,10 @@ class SnakeGame:
         time.sleep(0.5)  # wait for game to load
 
         # MUST BE CALLED BEFORE PRESSING PLAY
-        self.header_bbox, self.gamefield_bbox = self._get_game_bboxes()
+        self._header_bbox, self._gamefield_bbox = self._get_game_bboxes()
 
         # keep history of last few scores in case of screenshot glitches
-        self.score_deque = deque(maxlen=3)
+        self._score_deque = deque(maxlen=3)
 
     def get_gamestate(self) -> Union[npt.NDArray, None]:
         """
@@ -119,8 +119,8 @@ class SnakeGame:
         npt.NDArray or None: The image of the gamefield.
             Will return None if the game has ended, else an image of shape of shape (477,  530, 3). 
         """
-        header = np.array(self.sct.grab(self.header_bbox))
-        gamefield = np.array(self.sct.grab(self.gamefield_bbox))
+        header = np.array(self._sct.grab(self._header_bbox))
+        gamefield = np.array(self._sct.grab(self._gamefield_bbox))
 
         # check if game is over
         if self._check_game_end(header):
@@ -130,11 +130,11 @@ class SnakeGame:
         # get the current score
         score = self._get_header_score(header)
         if score is not None:
-            self.score_deque.append(score)
+            self._score_deque.append(score)
         else:
-            score = self.score_deque[-1]
+            score = self._score_deque[-1]
 
-        if self.verbose_mode:
+        if self._verbose_mode:
             cv2.putText(
                 gamefield,
                 f"Score: {score}",
@@ -193,12 +193,12 @@ class SnakeGame:
         )
 
         score_roi = header_img[
-            self.header_pixel_bboxes["digit_start_top_left"][
+            self._header_pixel_bboxes["digit_start_top_left"][
                 1
-            ] : self.header_pixel_bboxes["digit_end_bottom_right"][1],
-            self.header_pixel_bboxes["digit_start_top_left"][
+            ] : self._header_pixel_bboxes["digit_end_bottom_right"][1],
+            self._header_pixel_bboxes["digit_start_top_left"][
                 0
-            ] : self.header_pixel_bboxes["digit_end_bottom_right"][0],
+            ] : self._header_pixel_bboxes["digit_end_bottom_right"][0],
         ]
 
         # check if the score roi is empty if no socre or white due to glitched screenshot
@@ -207,7 +207,7 @@ class SnakeGame:
 
         # using a range as DIGIT_TEMPLATE_PATH.iterdir() returns a random order
         template_imgs = [
-            cv2.imread(str(self.digit_template_path / f"{digit}.png"), 0)
+            cv2.imread(str(self._digit_template_path / f"{digit}.png"), 0)
             for digit in range(10)
         ]
 
@@ -216,7 +216,7 @@ class SnakeGame:
         # digit vertically are 1, rest are 0. Will be a bool 1D array
         score_roi_flat = np.any(score_roi, axis=0)
 
-        if self.verbose_mode:
+        if self._verbose_mode:
             score_roi_disp = score_roi_flat.copy().astype(np.uint8).reshape(-1, 1)
             score_roi_disp = np.repeat(score_roi_disp, 18, 1).T * 255
             cv2.imshow("flat roi", score_roi_disp)
@@ -285,7 +285,7 @@ class SnakeGame:
         """
         # find and click settings icon
         settings_center = self._find_template_match(
-            self.icon_template_path / "settings-icon.png",
+            self._icon_template_path / "settings-icon.png",
             match_thresh=match_thresh,
             get_center=True,
         )
@@ -299,7 +299,7 @@ class SnakeGame:
         # use absolute positioning relative to settings page template match
         # to select all settings (because template match wasn't working great)
         settings_page_corner = self._find_template_match(
-            self.icon_template_path / "settings-page.png",
+            self._icon_template_path / "settings-page.png",
             get_center=False,
             match_thresh=match_thresh,
         )
@@ -310,7 +310,7 @@ class SnakeGame:
             pyautogui.press("enter")
             return
 
-        for _, point in self.settings_pixel_mapping.items():
+        for _, point in self._settings_pixel_mapping.items():
             pyautogui.click(
                 x=point[0] + settings_page_corner[0],
                 y=point[1] + settings_page_corner[1],
@@ -325,7 +325,7 @@ class SnakeGame:
     ) -> Union[Tuple[int, int], None]:
         with mss() as sct:
             # screenshot is in BGRA format, but we need BGR
-            img = np.array(sct.grab(sct.monitors[self.monitor_num]))[:, :, :3]
+            img = np.array(sct.grab(sct.monitors[self._monitor_num]))[:, :, :3]
 
         template = cv2.imread(str(template_path))
 
@@ -334,7 +334,7 @@ class SnakeGame:
         # check to make sure a match was found
         # done by making sure the best match point is above the match threshold
         if np.amax(res) < match_thresh:
-            if self.verbose_mode:
+            if self._verbose_mode:
                 cv2.imshow("template", template)
                 cv2.imshow("img", img)
                 cv2.waitKey(-1)
@@ -356,7 +356,7 @@ class SnakeGame:
         else:
             match_point = self._relative_point_to_abs(top_left)
 
-        if self.verbose_mode:
+        if self._verbose_mode:
             print(top_left, bottom_right)
             print(
                 f"x width: {bottom_right[0] - top_left[0]}, y height: {bottom_right[1] - top_left[1]}"
@@ -384,7 +384,7 @@ class SnakeGame:
             The absolute point.
         """
         with mss() as sct:
-            monitor = sct.monitors[self.monitor_num]
+            monitor = sct.monitors[self._monitor_num]
             return (point[0] + monitor["left"], point[1] + monitor["top"])
 
     def _get_game_bboxes(self) -> Tuple[Dict[str, int], Dict[str, int]]:
@@ -399,14 +399,14 @@ class SnakeGame:
             The absolute bounding box for the gamefield.
         """
         with mss() as sct:
-            img = np.array(sct.grab(sct.monitors[self.monitor_num]))
+            img = np.array(sct.grab(sct.monitors[self._monitor_num]))
 
-        if self.verbose_mode:
+        if self._verbose_mode:
             cv2.imshow("full frame", img)
             cv2.waitKey(-1)
 
-        header_bbox = self._get_bbox_by_hsv(img, self.thresh_header)
-        gamefield_bbox = self._get_bbox_by_hsv(img, self.thresh_gamefield)
+        header_bbox = self._get_bbox_by_hsv(img, self._thresh_header)
+        gamefield_bbox = self._get_bbox_by_hsv(img, self._thresh_gamefield)
         header_bbox = self._relative_bbox_to_abs(header_bbox)
         gamefield_bbox = self._relative_bbox_to_abs(gamefield_bbox)
         return header_bbox, gamefield_bbox
@@ -440,7 +440,7 @@ class SnakeGame:
             thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
         )
 
-        if self.verbose_mode:
+        if self._verbose_mode:
             img = cv2.cvtColor(img.copy(), cv2.COLOR_HSV2BGR)
             cv2.imshow("masked", masked)
             cv2.imshow("thresh", thresh)
@@ -459,7 +459,7 @@ class SnakeGame:
             if len(approx) == 4 and area_percentage > 0.01:
                 rects.append(contour)
 
-        if self.verbose_mode:
+        if self._verbose_mode:
             cv2.drawContours(img, rects, -1, (0, 255, 0), 3)
             cv2.imshow("bbox", img)
             cv2.waitKey(-1)
@@ -489,7 +489,7 @@ class SnakeGame:
             The absolute bounding box.
         """
         with mss() as sct:
-            monitor = sct.monitors[self.monitor_num]
+            monitor = sct.monitors[self._monitor_num]
             bbox["left"] += monitor["left"]
             bbox["top"] += monitor["top"]
             return bbox
