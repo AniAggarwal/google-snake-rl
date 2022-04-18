@@ -106,7 +106,7 @@ class SnakeGame:
         # keep history of last few scores in case of screenshot glitches
         self._score_deque = deque(maxlen=3)
 
-    def get_gamestate(self) -> Union[npt.NDArray, None]:
+    def get_gamestate(self) -> Tuple[npt.NDArray, int, bool]:
         """
         Gets the current game state in the form of an image of the gamefield.
 
@@ -116,23 +116,29 @@ class SnakeGame:
 
         Returns
         -------
-        npt.NDArray or None: The image of the gamefield.
-            Will return None if the game has ended, else an image of shape of shape (477,  530, 3). 
+        img : npt.NDArray
+            The image of the gamefield of shape (477, 530, 3). 
+        score : int
+            The current score or the last score if the game has ended.
+        game_over : bool
+            True if the game is over, False otherwise.
         """
         header = np.array(self._sct.grab(self._header_bbox))
         gamefield = np.array(self._sct.grab(self._gamefield_bbox))
 
         # check if game is over
-        if self._check_game_end(header):
-            print("Game over")
-            return None
-
-        # get the current score
-        score = self._get_header_score(header)
-        if score is not None:
-            self._score_deque.append(score)
-        else:
+        game_over = self._check_game_end(header)
+        if game_over:
+            # use the last score instead of calling _get_header_score()
+            # because we cannot see the score properly after the game ends
             score = self._score_deque[-1]
+        else:
+            # get the current score
+            score = self._get_header_score(header)
+            if score is not None:
+                self._score_deque.append(score)
+            else:
+                score = self._score_deque[-1]
 
         if self._verbose_mode:
             cv2.putText(
@@ -147,7 +153,7 @@ class SnakeGame:
             cv2.imshow("game", gamefield)
 
         # mss is of format BGRA and we only want BGR
-        return gamefield[:, :, :3]
+        return gamefield[:, :, :3], score, game_over
 
     def _check_game_end(
         self, header_img: npt.NDArray, header_thresh: float = 30.0
@@ -499,13 +505,24 @@ if __name__ == "__main__":
     game = SnakeGame(3)
     game.calibrate()
     while True:
-        gamefield = game.get_gamestate()
+        gamefield, score, game_over = game.get_gamestate()
 
-        if gamefield is None:
+        if game_over:
             print("Game over")
             pyautogui.press("enter")
+            time.sleep(1)
         else:
-            cv2.imshow("gamefield", gamefield)
+            img = gamefield.copy()
+            cv2.putText(
+                img,
+                f"Score: {score}",
+                (10, 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 255, 255),
+                1,
+            )
+            cv2.imshow("gamefield", img)
 
         if (cv2.waitKey(1) & 0xFF) == ord("q"):
             cv2.destroyAllWindows()
