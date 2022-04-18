@@ -23,7 +23,7 @@ class SnakeGame:
     Parameters
     ----------
     monitor_num : int
-        The number of the monitor to use.
+        The number of the monitor to use. Defaults to None, and if not specified during instantiation, must be specified in calibrate().
     template_path : str or PurePath
         The path to the directory containing the templates.
         Defaults to None, which will use the templates in the SnakeGame directory.
@@ -34,18 +34,23 @@ class SnakeGame:
     -------
     calibrate()
         Calibrates the game by settings up the correct settings and finding the bounding boxes of the game elements.
-    get_gamestate()
+    get_state()
         Gets the current game state in the form of an image of the gamefield.
+    reset()
+        Resets the game.
+    send_key(key)
+        Sends a key to the game.
     """
 
     def __init__(
         self,
-        monitor_num: int,
+        monitor_num: int = None,
         template_path: Union[str, PurePath] = None,
         verbose_mode: bool = False,
     ):
-        self._monitor_num = monitor_num
-        """int: The number of the monitor to use."""
+        if monitor_num is not None:
+            self._monitor_num = monitor_num
+            """int: The number of the monitor to use."""
         self._verbose_mode = verbose_mode
         """bool: Whether to print out extra information."""
 
@@ -84,18 +89,34 @@ class SnakeGame:
         self._sct = mss()
         """mss: The mss object to use for taking screenshots."""
 
-    def calibrate(self) -> None:
+    def calibrate(self, monitor_num: int = None) -> None:
         """
         Calibrates the game by settings up the correct settings and finding the bounding boxes of the game elements.
 
         Parameters
         ----------
-        None
+        monitor_num : int
+            The number of the monitor to use. Defaults to None, which will use the monitor number specified in the SnakeGame object.
 
         Returns:
         --------
         None
+
+        Raises
+        ------
+        ValueError if the monitor number is not specified and the SnakeGame object does not have a monitor number specified.
         """
+
+        if monitor_num is not None:
+            self._monitor_num = monitor_num
+            """int: The number of the monitor to use."""
+        if self._monitor_num is None:
+            raise ValueError("Monitor number must be specified either in calibrate() or when this object is instantiated.")
+
+        # before setting up settings, refresh the page
+        pyautogui.press("f5")
+        time.sleep(1)
+
         # will set game settings and get game bounding box
         self._select_game_settings(match_thresh=0.95)
         time.sleep(0.5)  # wait for game to load
@@ -105,8 +126,10 @@ class SnakeGame:
 
         # keep history of last few scores in case of screenshot glitches
         self._score_deque = deque(maxlen=3)
+        # the game always starts with a score of 0 and adding this prevents index errors
+        self._score_deque.append(0)
 
-    def get_gamestate(self) -> Tuple[npt.NDArray, int, bool]:
+    def get_state(self) -> Tuple[npt.NDArray, int, bool]:
         """
         Gets the current game state in the form of an image of the gamefield.
 
@@ -154,6 +177,44 @@ class SnakeGame:
 
         # mss is of format BGRA and we only want BGR
         return gamefield[:, :, :3], score, game_over
+
+    def reset(self) -> None:
+        """
+        Resets the game by pressing the play button.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
+        pyautogui.press("enter")
+        time.sleep(0.5)
+
+    def send_key(self, key: str) -> None:
+        """
+        Sends a key to the game.
+
+        Parameters
+        ----------
+        key : str
+            The key to send, must be either 'up', 'down', 'left', or 'right'.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        ValueError if the key is not a valid key.
+        """
+        if key not in ["up", "down", "left", "right"]:
+            raise ValueError(
+                f"Key {key} not recognized. Must be one of 'up', 'down', 'left', or 'right'."
+            )
+        pyautogui.press(key)
 
     def _check_game_end(
         self, header_img: npt.NDArray, header_thresh: float = 30.0
@@ -505,7 +566,7 @@ if __name__ == "__main__":
     game = SnakeGame(3)
     game.calibrate()
     while True:
-        gamefield, score, game_over = game.get_gamestate()
+        gamefield, score, game_over = game.get_state()
 
         if game_over:
             print("Game over")
