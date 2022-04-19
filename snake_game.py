@@ -2,6 +2,7 @@ import time
 from collections import deque
 from pathlib import Path
 from pathlib import PurePath
+import warnings
 from typing import Union, Iterable, List, Tuple, Dict
 
 import numpy as np
@@ -24,7 +25,8 @@ class SnakeGame:
     ----------
     monitor_num : int
         The number of the monitor to use. Defaults to None, and if not
-        specified during instantiation, must be specified in calibrate().
+        specified during instantiation or in calibrate(), the 'last'
+        monitor will be used.
     template_path : str or PurePath
         The path to the directory containing the templates. Defaults to
         None, which will use the templates in the SnakeGame directory.
@@ -51,9 +53,8 @@ class SnakeGame:
         template_path: Union[str, PurePath] = None,
         verbose_mode: bool = False,
     ):
-        if monitor_num is not None:
-            self._monitor_num = monitor_num
-            """int: The number of the monitor to use."""
+        self._monitor_num = monitor_num
+        """int: The number of the monitor to use."""
         self._verbose_mode = verbose_mode
         """bool: Whether to print out extra information."""
 
@@ -94,7 +95,7 @@ class SnakeGame:
         self._sct = mss()
         """mss: The mss object to use for taking screenshots."""
 
-    def calibrate(self, monitor_num: int = None) -> None:
+    def calibrate(self, monitor_num: int = None, try_count : int = 3) -> None:
         """Calibrates the game.
 
         Calibrates by settings up the correct settings and finding
@@ -105,6 +106,10 @@ class SnakeGame:
         monitor_num : int
             The number of the monitor to use. Defaults to None, which
             will use the monitor number specified in the SnakeGame object.
+            If not specified here or in the SnakeGame object, will use
+            the 'last' monitor.
+        try_count : int
+            The number of times to try calibrating. Defaults to 3.
 
         Returns:
         --------
@@ -112,24 +117,37 @@ class SnakeGame:
 
         Raises
         ------
-        ValueError if the monitor number is not specified and the
-        SnakeGame object does not have a monitor number specified.
+        ValueError
+            If the gamefield or header bounding box is not found after
+            try_count attempts.
+
+        Warnings
+        --------
+        If the monitor number is not specified and the SnakeGame
+        object does not have a monitor number specified.
+        If the gamefield or header bounding box is not found.
         """
 
         if monitor_num is not None:
             self._monitor_num = monitor_num
             """int: The number of the monitor to use."""
         if self._monitor_num is None:
-            raise ValueError(
-                "Monitor number must be specified either in calibrate() or when this object is instantiated."
-            )
+            self._monitor_num = len(mss().monitors) - 1 
+            warnings.warn(f"No monitor number specified, using {self._monitor_num}.")
 
         # will set game settings and get game bounding box
         self._select_game_settings(match_thresh=0.95)
         time.sleep(1)  # wait for game to load
 
         # MUST BE CALLED BEFORE PRESSING PLAY
-        self._header_bbox, self._gamefield_bbox = self._get_game_bboxes()
+        for attempt_num in range(try_count):
+            try:
+                self._header_bbox, self._gamefield_bbox = self._get_game_bboxes()
+            except ValueError as _:
+                warnings.warn(f"Could not find gamefield and/or header. Attempt {attempt_num + 1}.")
+
+        if self._header_bbox is None or self._gamefield_bbox is None:
+            raise ValueError("Could not find gamefield and/or header after {try_count} attempts.")
 
         # keep history of last few scores in case of screenshot glitches
         self._score_deque = deque(maxlen=3)
@@ -367,6 +385,10 @@ class SnakeGame:
         Returns
         -------
         None
+
+        Warnings
+        --------
+        If settings are not found or already selected.
         """
         # find and click settings icon
         settings_center = self._find_template_match(
@@ -375,7 +397,7 @@ class SnakeGame:
             get_center=True,
         )
         if settings_center is None:
-            print("Could not find settings icon. Skipping settings selection.")
+            warnings.warn("Could not find settings icon. Skipping settings selection.")
             return
         pyautogui.click(x=settings_center[0], y=settings_center[1])
         # wait for settings to load
@@ -389,7 +411,7 @@ class SnakeGame:
             match_thresh=match_thresh,
         )
         if settings_page_corner is None:
-            print(
+            warnings.warn(
                 "Could not find settings page. Skipping settings selection and starting game."
             )
             pyautogui.press("enter")

@@ -39,7 +39,7 @@ class SnakeEnv(Env):
 
         self.game = SnakeGame()
         """snake_game.SnakeGame: Snake game instance."""
-        self.game.calibrate(monitor_num=3)
+        self.game.calibrate()
 
         self.prev_score = 0
         """int: Previous score, helps keep track of rewards."""
@@ -47,6 +47,9 @@ class SnakeEnv(Env):
         # for rendering
         self.render_window_name = "Snake Game"
         cv2.namedWindow(self.render_window_name, cv2.WINDOW_AUTOSIZE)
+        # cv2.namedWindow(self.render_window_name, cv2.WINDOW_NORMAL)
+        # cv2.resizeWindow(self.render_window_name, img_width, img_height)
+        # cv2.startWindowThread()
 
     def step(self, action):
         # Apply action to the state
@@ -104,7 +107,6 @@ class SnakeEnv(Env):
         method as the window needs to be moved out of the way and then
         the focus needs to be returned to the game.
         """
-
         cv2.moveWindow(self.render_window_name, 1000, 100)
         cv2.imshow(self.render_window_name, np.zeros(self.observation_space.shape))
         self.game.focus_game()
