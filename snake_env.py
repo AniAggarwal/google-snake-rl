@@ -47,9 +47,6 @@ class SnakeEnv(Env):
         # for rendering
         self.render_window_name = "Snake Game"
         cv2.namedWindow(self.render_window_name, cv2.WINDOW_AUTOSIZE)
-        # cv2.namedWindow(self.render_window_name, cv2.WINDOW_NORMAL)
-        # cv2.resizeWindow(self.render_window_name, img_width, img_height)
-        # cv2.startWindowThread()
 
     def step(self, action):
         # Apply action to the state
@@ -107,7 +104,7 @@ class SnakeEnv(Env):
         method as the window needs to be moved out of the way and then
         the focus needs to be returned to the game.
         """
-        cv2.moveWindow(self.render_window_name, 1000, 100)
+        cv2.moveWindow(self.render_window_name, 2000, 1000)
         cv2.imshow(self.render_window_name, np.zeros(self.observation_space.shape))
         self.game.focus_game()
 
@@ -119,6 +116,8 @@ class SnakeEnv(Env):
 
 
 if __name__ == "__main__":
+    import time
+
     print("Running a SnakeEnv test with a random agent")
     env = SnakeEnv()
 
@@ -128,11 +127,20 @@ if __name__ == "__main__":
         done = False
         tot_score = 0
 
+        prev_time = time.time()
+        avg_fps = 0
+        frame_count = 0
         while not done:
             env.render()
             action = env.action_space.sample()
             obs, reward, done, info = env.step(action)
             tot_score += reward
 
+            # Counting FPS
+            fps = 1 / (time.time() - prev_time)
+            prev_time = time.time()
+            avg_fps = (avg_fps * frame_count + fps) / (frame_count + 1)
+
         print(f"Episode {episode} finished with score {tot_score}")
+        print(f"Average FPS: {avg_fps}")
 
