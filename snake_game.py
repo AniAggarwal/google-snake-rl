@@ -58,9 +58,11 @@ class SnakeGame:
         self._verbose_mode = verbose_mode
         """bool: Whether to print out extra information."""
 
-        self._thresh_header = np.array([[48, 159, 100], [48, 159, 125]])
+        # self._thresh_header = np.array([[48, 159, 100], [48, 159, 125]])
+        self._thresh_header = np.array([[51, 150, 0], [80, 180, 255]])
         """npt.NDArray: The color threshold for the header."""
-        self._thresh_gamefield = np.array([[40, 150, 0], [40, 180, 255]])
+        # self._thresh_gamefield = np.array([[40, 150, 0], [40, 180, 255]])
+        self._thresh_gamefield = np.array([[45, 0, 0], [50, 200, 255]])
         """npt.NDArray: The color threshold for the gamefield."""
 
         if template_path is None:
@@ -140,26 +142,33 @@ class SnakeGame:
         time.sleep(1)  # wait for game to load
 
         # MUST BE CALLED BEFORE PRESSING PLAY
+        self._header_bbox = None
         for attempt_num in range(try_count):
             try:
                 self._header_bbox, self._gamefield_bbox = self._get_game_bboxes()
             except ValueError as _:
                 warnings.warn(f"Could not find gamefield and/or header. Attempt {attempt_num + 1}.")
+                time.sleep(1)
 
         if self._header_bbox is None or self._gamefield_bbox is None:
-            raise ValueError("Could not find gamefield and/or header after {try_count} attempts.")
+            raise ValueError(f"Could not find gamefield and/or header after {try_count} attempts.")
 
         # keep history of last few scores in case of screenshot glitches
         self._score_deque = deque(maxlen=3)
         # the game always starts with a score of 0 and adding this prevents index errors
         self._score_deque.append(0)
 
-    def get_state(self) -> Tuple[npt.NDArray, int, bool]:
+    def get_state(self, img_width: int = None, img_height: int = None) -> Tuple[npt.NDArray, int, bool]:
         """Gets the current game state as an image of the gamefield.
 
         Parameters
         ----------
-        None
+        img_width : int
+            The width of the image to return. Defaults to None, which
+            will use the default width of the gamefield.
+        img_height : int
+            The height of the image to return. Defaults to None, which
+            will use the default height of the gamefield.
 
         Returns
         -------
@@ -169,12 +178,17 @@ class SnakeGame:
             The current score or the last score if the game has ended.
         game_over : bool
             True if the game is over, False otherwise.
+
+        Raises
+        ------
+        ValueError
+            If img_width or img_height is provided but not both.
         """
         header = np.array(self._sct.grab(self._header_bbox))
         gamefield = np.array(self._sct.grab(self._gamefield_bbox))
 
         # check if game is over
-        game_over = self._check_game_end(header)
+        game_over = self._check_game_end(header, header_thresh=55)
         if game_over:
             # use the last score instead of calling _get_header_score()
             # because we cannot see the score properly after the game ends
@@ -200,7 +214,13 @@ class SnakeGame:
             cv2.imshow("game", gamefield)
 
         # mss is of format BGRA and we only want BGR
-        return gamefield[:, :, :3], score, game_over
+        gamefield = gamefield[:, :, :3]
+        # resize to fit the desired image size
+        if (img_width is None) ^ (img_height is None):
+            raise ValueError("Must specify both img_width and img_height or neither.")
+        if img_width is not None and img_height is not None:
+            gamefield = cv2.resize(gamefield, (img_width, img_height))
+        return gamefield, score, game_over
 
     def reset(self) -> None:
         """Resets the game by pressing the play button.
@@ -393,7 +413,7 @@ class SnakeGame:
         # find and click settings icon
         settings_center = self._find_template_match(
             self._icon_template_path / "settings-icon.png",
-            match_thresh=match_thresh,
+            match_thresh=0.5,
             get_center=True,
         )
         if settings_center is None:
@@ -408,7 +428,7 @@ class SnakeGame:
         settings_page_corner = self._find_template_match(
             self._icon_template_path / "settings-page.png",
             get_center=False,
-            match_thresh=match_thresh,
+            match_thresh=0.9,
         )
         if settings_page_corner is None:
             warnings.warn(
@@ -570,7 +590,8 @@ class SnakeGame:
             thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
         )
 
-        if self._verbose_mode:
+        # if self._verbose_mode:
+        if True:
             img = cv2.cvtColor(img.copy(), cv2.COLOR_HSV2BGR)
             cv2.imshow("masked", masked)
             cv2.imshow("thresh", thresh)

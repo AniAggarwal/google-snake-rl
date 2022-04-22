@@ -54,7 +54,7 @@ class SnakeEnv(Env):
             self.game.send_key(self.action_to_key[action].lower())
 
         # Get the new state
-        self.state, score, game_over = self.game.get_state()
+        self.state, score, game_over = self.game.get_state(img_width=self.observation_space.shape[1], img_height=self.observation_space.shape[0])
 
         # calcualte the reward
         reward = score - self.prev_score
@@ -119,9 +119,10 @@ if __name__ == "__main__":
     import time
 
     print("Running a SnakeEnv test with a random agent")
-    env = SnakeEnv()
+    time.sleep(3)
+    env = SnakeEnv(img_width=10, img_height=9)
 
-    episode_count = 3
+    episode_count = 10
     for episode in range(episode_count):
         obs = env.reset()
         done = False
