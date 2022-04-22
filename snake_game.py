@@ -119,9 +119,7 @@ class SnakeGame:
 
         Raises
         ------
-        ValueError
-            If the gamefield or header bounding box is not found after
-            try_count attempts.
+        ValueError if the game cannot be calibrated.
 
         Warnings
         --------
@@ -143,15 +141,38 @@ class SnakeGame:
 
         # MUST BE CALLED BEFORE PRESSING PLAY
         self._header_bbox = None
-        for attempt_num in range(try_count):
+        self._gamefield_bbox = None
+        for attempt_num in range(try_count + 1):
+            # if last attempt failed use manual calibration
+            if attempt_num == try_count:
+                input("Using manual calibration. Please press play and ensure the"
+                      f"gamefield and header is visible on monitor number {self._monitor_num}."
+                      "Press enter once ready.")
+                time.sleep(1)
+                with mss() as sct:
+                    img = np.array(sct.grab(sct.monitors[self._monitor_num]))
+                self._thresh_header = self._manual_hsv_calibration(img, self._thresh_header)
+                self._thresh_gamefield = self._manual_hsv_calibration(img, self._thresh_gamefield)
+                time.sleep(1)
             try:
                 self._header_bbox, self._gamefield_bbox = self._get_game_bboxes()
             except ValueError as _:
-                warnings.warn(f"Could not find gamefield and/or header. Attempt {attempt_num + 1}.")
-                time.sleep(1)
+                if attempt_num == try_count:
+                    # TODO bug here
+                    raise ValueError("Could not find gamefield or header bounding box.")
+                else:
+                    warnings.warn(f"Could not find gamefield and/or header. Attempt {attempt_num + 1}.")
+                    time.sleep(1)
 
         if self._header_bbox is None or self._gamefield_bbox is None:
-            raise ValueError(f"Could not find gamefield and/or header after {try_count} attempts.")
+            input("Using manual calibration. Please press play and ensure the"
+                  f"gamefield and header is visible on monitor number {self._monitor_num}."
+                  "Press enter once ready.")
+            time.sleep(1)
+            with mss() as sct:
+                img = np.array(sct.grab(sct.monitors[self._monitor_num]))
+            self._thresh_header = self._manual_hsv_calibration(img, self._thresh_header)
+            self._thresh_gamefield = self._manual_hsv_calibration(img, self._thresh_gamefield)
 
         # keep history of last few scores in case of screenshot glitches
         self._score_deque = deque(maxlen=3)
@@ -188,7 +209,8 @@ class SnakeGame:
         gamefield = np.array(self._sct.grab(self._gamefield_bbox))
 
         # check if game is over
-        game_over = self._check_game_end(header, header_thresh=55)
+        # TODO add a way to pass in a header thresh here
+        game_over = self._check_game_end(header)
         if game_over:
             # use the last score instead of calling _get_header_score()
             # because we cannot see the score properly after the game ends
@@ -293,6 +315,7 @@ class SnakeGame:
         bool
             True if the game is over, False otherwise.
         """
+        # TODO add a way to manually calibrate this
         # check if game is over by seeing if there has been a signficant change in the mean header img
         return np.mean(header_img) < header_thresh
 
@@ -410,10 +433,11 @@ class SnakeGame:
         --------
         If settings are not found or already selected.
         """
+        # TODO add a way to pass two different match threshs
         # find and click settings icon
         settings_center = self._find_template_match(
             self._icon_template_path / "settings-icon.png",
-            match_thresh=0.5,
+            match_thresh=match_thresh,
             get_center=True,
         )
         if settings_center is None:
@@ -428,7 +452,7 @@ class SnakeGame:
         settings_page_corner = self._find_template_match(
             self._icon_template_path / "settings-page.png",
             get_center=False,
-            match_thresh=0.9,
+            match_thresh=match_thresh,
         )
         if settings_page_corner is None:
             warnings.warn(
@@ -590,8 +614,7 @@ class SnakeGame:
             thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
         )
 
-        # if self._verbose_mode:
-        if True:
+        if self._verbose_mode:
             img = cv2.cvtColor(img.copy(), cv2.COLOR_HSV2BGR)
             cv2.imshow("masked", masked)
             cv2.imshow("thresh", thresh)
@@ -643,6 +666,77 @@ class SnakeGame:
             bbox["left"] += monitor["left"]
             bbox["top"] += monitor["top"]
             return bbox
+
+    def _manual_hsv_calibration(self, img : npt.NDArray, default_thresh : npt.NDArray = np.array([[0, 0, 0], [179, 255, 255]])) -> npt.NDArray:
+        """Manually calibrate the HSV thresholding.
+
+        This will show the image and allow the user to select the HSV
+        thresholding values.
+
+        Parameters
+        ----------
+        img : npt.NDArray
+            The image to use for calibration.
+        default_thresh : npt.NDArray
+            The default HSV thresholding values in the form of a numpy
+            array: [[lower_h, lower_s, lower_v], [upper_h, upper_s, upper_v]].
+
+        Returns
+        -------
+        thresh : npt.NDArray
+            The HSV thresholding values in the form of a numpy array:
+            [[lower_h, lower_s, lower_v], [upper_h, upper_s, upper_v]].
+        """
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        win_name = "Calibration. Press 'enter' when complete."
+        cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+
+        # Create trackbars for color change
+        # Hue is from 0-179 for Opencv
+        cv2.createTrackbar('H_min', win_name, 0, 179, lambda x: None)
+        cv2.createTrackbar('S_min', win_name, 0, 255, lambda x: None)
+        cv2.createTrackbar('V_min', win_name, 0, 255, lambda x: None)
+        cv2.createTrackbar('H_max', win_name, 0, 179, lambda x: None)
+        cv2.createTrackbar('S_max', win_name, 0, 255, lambda x: None)
+        cv2.createTrackbar('V_max', win_name, 0, 255, lambda x: None)
+
+        # Set default value for the trackbars
+        cv2.setTrackbarPos('H_min', win_name, default_thresh[0, 0])
+        cv2.setTrackbarPos('S_min', win_name, default_thresh[0, 1])
+        cv2.setTrackbarPos('V_min', win_name, default_thresh[0, 2])
+        cv2.setTrackbarPos('H_max', win_name, default_thresh[1, 0])
+        cv2.setTrackbarPos('S_max', win_name, default_thresh[1, 1])
+        cv2.setTrackbarPos('V_max', win_name, default_thresh[1, 2])
+
+        # Initialize HSV min/max values
+        h_min = s_min = v_min = h_max = s_max = v_max = 0
+
+        while True:
+            # Get current positions of all trackbars
+            h_min = cv2.getTrackbarPos('H_min', win_name)
+            s_min = cv2.getTrackbarPos('S_min', win_name)
+            v_min = cv2.getTrackbarPos('V_min', win_name)
+            h_max = cv2.getTrackbarPos('H_max', win_name)
+            s_max = cv2.getTrackbarPos('S_max', win_name)
+            v_max = cv2.getTrackbarPos('V_max', win_name)
+
+            # Set minimum and maximum HSV values to display
+            lower_hsv = np.array([h_min, s_min, v_min])
+            upper_hsv = np.array([h_max, s_max, v_max])
+
+            # Mask and display img
+            mask = cv2.inRange(img, lower_hsv, upper_hsv)
+            res = cv2.bitwise_and(img, img, mask=mask)
+            cv2.imshow(win_name, res)
+
+            # Wait for escape key to exit
+            # if cv2.waitKey(1) == 27:
+            if cv2.waitKey(1) & 0xFF == ord('\r'):
+                break
+                cv2.destroyAllWindows()
+
+        print(f"Using manual calibration values: {np.array([[h_min, s_min, v_min], [h_max, s_max, v_max]])}")
+        return np.array([[h_min, s_min, v_min], [h_max, s_max, v_max]])
 
 
 if __name__ == "__main__":
