@@ -14,6 +14,8 @@ import pyautogui
 
 # List of TODOs:
 # - Sort out the verbose mode
+# - Pause between steps. 
+#   - Maybe hit escape or pause button after every step?
 
 
 class SnakeGame:
@@ -58,11 +60,12 @@ class SnakeGame:
         self._verbose_mode = verbose_mode
         """bool: Whether to print out extra information."""
 
-        # self._thresh_header = np.array([[48, 159, 100], [48, 159, 125]])
-        self._thresh_header = np.array([[51, 150, 0], [80, 180, 255]])
+        # TODO add a way to store this data in a json config
+        self._thresh_header = np.array([[48, 159, 100], [48, 159, 125]])
+        # self._thresh_header = np.array([[51, 150, 0], [80, 180, 255]])
         """npt.NDArray: The color threshold for the header."""
-        # self._thresh_gamefield = np.array([[40, 150, 0], [40, 180, 255]])
-        self._thresh_gamefield = np.array([[45, 0, 0], [50, 200, 255]])
+        self._thresh_gamefield = np.array([[40, 150, 0], [40, 180, 255]])
+        # self._thresh_gamefield = np.array([[45, 0, 0], [50, 200, 255]])
         """npt.NDArray: The color threshold for the gamefield."""
 
         if template_path is None:
@@ -151,14 +154,17 @@ class SnakeGame:
                 time.sleep(1)
                 with mss() as sct:
                     img = np.array(sct.grab(sct.monitors[self._monitor_num]))
+                print("Calibrating header...")
                 self._thresh_header = self._manual_hsv_calibration(img, self._thresh_header)
+                print("Calibrating gamefield...")
                 self._thresh_gamefield = self._manual_hsv_calibration(img, self._thresh_gamefield)
                 time.sleep(1)
             try:
                 self._header_bbox, self._gamefield_bbox = self._get_game_bboxes()
+                if self._header_bbox is not None and self._gamefield_bbox is not None:
+                    break
             except ValueError as _:
                 if attempt_num == try_count:
-                    # TODO bug here
                     raise ValueError("Could not find gamefield or header bounding box.")
                 else:
                     warnings.warn(f"Could not find gamefield and/or header. Attempt {attempt_num + 1}.")
@@ -235,6 +241,35 @@ class SnakeGame:
             )
             cv2.imshow("game", gamefield)
 
+        gamefield = self._get_gamefield_img(gamefield, img_width, img_height)
+
+        return gamefield, score, game_over
+
+    def _get_gamefield_img(self, gamefield: npt.NDArray, img_width: int = None, img_height: int = None) -> npt.NDArray:
+        """
+        Gets the gamefield image.
+
+        Parameters
+        ----------
+        gamefield : npt.NDArray
+            The gamefield image.
+        img_width : int
+            The width of the image to return. Defaults to None, which
+            will use the default width of the gamefield.
+        img_height : int
+            The height of the image to return. Defaults to None, which
+            will use the default height of the gamefield.
+
+        Returns
+        -------
+        img : npt.NDArray
+            The image of the gamefield of shape (477, 530, 3). 
+
+        Raises
+        ------
+        ValueError
+            If img_width or img_height is provided but not both.
+        """
         # mss is of format BGRA and we only want BGR
         gamefield = gamefield[:, :, :3]
         # resize to fit the desired image size
@@ -242,23 +277,37 @@ class SnakeGame:
             raise ValueError("Must specify both img_width and img_height or neither.")
         if img_width is not None and img_height is not None:
             gamefield = cv2.resize(gamefield, (img_width, img_height))
-        return gamefield, score, game_over
+        return gamefield
 
-    def reset(self) -> None:
+
+    def reset(self, img_width: int = None, img_height: int = None) -> npt.NDArray:
         """Resets the game by pressing the play button.
 
         Parameters
         ----------
-        None
+        img_width : int
+            The width of the image to return. Defaults to None, which
+            will use the default width of the gamefield.
+        img_height : int
+            The height of the image to return. Defaults to None, which
+            will use the default height of the gamefield.
 
         Returns
         -------
-        None
+        img : npt.NDArray
+            The image of the gamefield of shape (477, 530, 3). 
+
+        Raises
+        ------
+        ValueError
+            If img_width or img_height is provided but not both.
         """
         # first focus on game by clicking on the gamefield area
         self.focus_game()
         pyautogui.press("enter")
         time.sleep(0.5)
+        gamefield = np.array(self._sct.grab(self._gamefield_bbox))
+        return self._get_gamefield_img(gamefield, img_width, img_height)
 
     def send_key(self, key: str) -> None:
         """Sends a key to the game.

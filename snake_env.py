@@ -1,3 +1,5 @@
+from typing import Union
+
 import cv2
 import numpy as np
 import numpy.typing as npt
@@ -19,33 +21,39 @@ class SnakeEnv(Env):
     def __init__(
         self, img_width: int = 530, img_height: int = 477, gray_scale: bool = False
     ) -> None:
-        self.action_space = Discrete(5)
-        """gym.spaces.Discrete: Environment's action space: NOOP[0], UP[1], RIGHT[2], DOWN[3], LEFT[4]."""
+        self.action_space: Discrete = Discrete(5)
+        """Discrete: Environment's action space: NOOP[0], UP[1], RIGHT[2], DOWN[3], LEFT[4]."""
 
-        self.action_to_key = {0: "NOOP", 1: "UP", 2: "RIGHT", 3: "DOWN", 4: "LEFT"}
+        self.action_to_key: dict[int, str] = {
+            0: "NOOP",
+            1: "UP",
+            2: "RIGHT",
+            3: "DOWN",
+            4: "LEFT",
+        }
         """dict[int, str]: Maps actions to keys."""
 
-        self.observation_space = Box(
+        self.observation_space: Box = Box(
             low=0,
             high=255,
             shape=(img_height, img_width, 1 if gray_scale else 3),
             dtype=np.uint8,
         )
-        """gym.spaces.Box: Environment's observation space, an image of the current gamefield of shape:
+        """Box: Environment's observation space, an image of the current gamefield of shape:
             (img_height, img_width, 0 if gray_scale else 3)."""
 
-        self.state = None
+        self.state: Union[npt.NDArray, None] = None
         """npt.NDArray or None: Current state of the environment."""
 
-        self.game = SnakeGame()
-        """snake_game.SnakeGame: Snake game instance."""
+        self.game: SnakeGame = SnakeGame()
+        """SnakeGame: Snake game instance."""
         self.game.calibrate()
 
-        self.prev_score = 0
+        self.prev_score: int = 0
         """int: Previous score, helps keep track of rewards."""
 
         # for rendering
-        self.render_window_name = "Snake Game"
+        self.render_window_name: str = "Snake Game"
         cv2.namedWindow(self.render_window_name, cv2.WINDOW_AUTOSIZE)
 
     def step(self, action):
@@ -54,7 +62,10 @@ class SnakeEnv(Env):
             self.game.send_key(self.action_to_key[action].lower())
 
         # Get the new state
-        self.state, score, game_over = self.game.get_state(img_width=self.observation_space.shape[1], img_height=self.observation_space.shape[0])
+        self.state, score, game_over = self.game.get_state(
+            img_width=self.observation_space.shape[1],
+            img_height=self.observation_space.shape[0],
+        )
 
         # calcualte the reward
         reward = score - self.prev_score
@@ -74,7 +85,10 @@ class SnakeEnv(Env):
         # TODO figure out how to resolve this
         self.state = None
         self.prev_score = 0
-        self.game.reset()
+        return self.game.reset(
+            img_width=self.observation_space.shape[1],
+            img_height=self.observation_space.shape[0],
+        )
 
     def render(self):
         # for initial case before first step
