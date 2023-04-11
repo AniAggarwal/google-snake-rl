@@ -81,4 +81,4 @@ Also, the video rendering may be laggy when using the named window. The window m
 
 ## License
 
-This code is licensed under the _ License.
+This code is licensed under the GPL License.
