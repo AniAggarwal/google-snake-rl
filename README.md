@@ -9,10 +9,17 @@ The environment is built with the following dependencies:
 -   OpenCV
 -   NumPy
 -   Gym
+-   MSS
+-   PyAutoGUI
 
-You can install these dependencies using the following command:
+The following are needed if you will be running the example DQN or test files:
+-   torch
+-   tqdm
+-   matplotlib
 
-`pip install opencv-python numpy gym` 
+You can install the necessary dependencies using the following command:
+
+`pip install opencv-python numpy gym mss PyAutoGUI` 
 
 ## Usage
 
